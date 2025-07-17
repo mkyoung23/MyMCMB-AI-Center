@@ -164,16 +164,17 @@ def create_pdf_report(data):
     
     pdf.ln(10)
     pdf.chapter_title("AI-Generated Outreach Options")
-    for option in data['outreach']:
-        pdf.set_font('Arial', 'B', 11)
-        pdf.cell(0, 10, option['title'], 0, 1)
-        pdf.set_font('Arial', 'B', 10)
-        pdf.cell(0, 8, "SMS Template:", 0, 1)
-        pdf.chapter_body(option['sms'])
-        pdf.set_font('Arial', 'B', 10)
-        pdf.cell(0, 8, "Email Template:", 0, 1)
-        pdf.chapter_body(option['email'])
-        pdf.ln(5)
+    if data.get('outreach'):
+        for option in data['outreach']:
+            pdf.set_font('Arial', 'B', 11)
+            pdf.cell(0, 10, option.get('title', 'N/A'), 0, 1)
+            pdf.set_font('Arial', 'B', 10)
+            pdf.cell(0, 8, "SMS Template:", 0, 1)
+            pdf.chapter_body(option.get('sms', 'N/A'))
+            pdf.set_font('Arial', 'B', 10)
+            pdf.cell(0, 8, "Email Template:", 0, 1)
+            pdf.chapter_body(option.get('email', 'N/A'))
+            pdf.ln(5)
 
     return pdf.output(dest='S').encode('latin-1')
 
@@ -239,7 +240,7 @@ elif app_mode == "Refinance Intelligence Center":
                     df['Max Cash-Out Amount'] = (df['Estimated Home Value'] * 0.80) - df['Remaining Balance']
                     df['Max Cash-Out Amount'] = df['Max Cash-Out Amount'].apply(lambda x: max(0, round(x, 2)))
                     
-                    for term, rate_key in [('30yr', '30yr_fixed'), ('20yr', '20yr_fixed'), ('15yr', '15yr_fixed'), ('10yr', '10yr_fixed')]:
+                    for term, rate_key in [('30yr', '30yr_fixed'), ('25yr', '25yr_fixed'), ('20yr', '20yr_fixed'), ('15yr', '15yr_fixed'), ('10yr', '10yr_fixed')]:
                         rate = rates.get(rate_key, 0) / 100
                         if rate > 0:
                             df[f'New P&I ({term})'] = df.apply(lambda row: calculate_new_pi(row['Remaining Balance'], rate, int(term.replace('yr',''))), axis=1)
