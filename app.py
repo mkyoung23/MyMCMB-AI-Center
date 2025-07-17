@@ -5,6 +5,7 @@ import json
 from datetime import datetime
 import re
 import io
+from fpdf import FPDF
 
 # --- PAGE CONFIGURATION ---
 st.set_page_config(
@@ -21,6 +22,7 @@ st.markdown("""
     }
     .main .block-container {
         padding-top: 2rem;
+        padding-bottom: 2rem;
     }
     h1, h2, h3 {
         color: #1e3a8a; /* Dark Blue */
@@ -44,23 +46,23 @@ st.markdown("""
 
 # --- API & MODEL SETUP ---
 try:
-    # Load the Gemini API key from Streamlit secrets for security
     GEMINI_API_KEY = st.secrets.get("GEMINI_API_KEY")
-    if not GEMINI_API_KEY:
-        st.error("CRITICAL ERROR: Your Gemini API Key is not configured. Please add it to your Streamlit Secrets in the correct TOML format.")
+    APP_PASSWORD = st.secrets.get("APP_PASSWORD")
+    if not GEMINI_API_KEY or not APP_PASSWORD:
+        st.error("CRITICAL ERROR: API Keys or App Password are not configured in Streamlit Secrets.")
         st.stop()
         
     genai.configure(api_key=GEMINI_API_KEY)
     model = genai.GenerativeModel('gemini-1.5-flash')
 except Exception as e:
-    st.error(f"Could not configure AI models. Please ensure your API keys are correctly set in Streamlit Secrets. Error: {e}")
+    st.error(f"Could not configure AI models. Error: {e}")
     st.stop()
 
 # --- SIDEBAR & NAVIGATION ---
 st.sidebar.title("MyMCMB AI Command Center")
 app_mode = st.sidebar.selectbox(
     "Select an AI Agent",
-    ["Refinance Intelligence Center", "Guideline & Product Chatbot", "Social Media Automation", "Admin Rate Panel"]
+    ["Refinance Intelligence Center", "Admin Rate Panel", "Guideline & Product Chatbot", "Social Media Automation"]
 )
 
 # --- ROBUST SHARED FUNCTIONS ---
@@ -96,7 +98,7 @@ def calculate_amortized_balance(principal, annual_rate, term_years, first_paymen
     try:
         principal = clean_currency(principal)
         annual_rate = clean_percentage(annual_rate)
-        term_years = int(clean_currency(term_years)) # Robustly handle term
+        term_years = int(clean_currency(term_years))
         if pd.isna(first_payment_date): return principal
         
         first_payment = pd.to_datetime(first_payment_date)
@@ -111,32 +113,87 @@ def calculate_amortized_balance(principal, annual_rate, term_years, first_paymen
         balance = principal * ( ((1 + monthly_rate)**total_payments - (1 + monthly_rate)**payments_made) / ((1 + monthly_rate)**total_payments - 1) )
         return max(0, round(balance, 2))
     except Exception:
-        return principal # Return original principal if any error occurs
+        return principal
+
+# --- PDF EXPORT FUNCTION ---
+class PDF(FPDF):
+    def header(self):
+        self.set_font('Arial', 'B', 12)
+        self.cell(0, 10, 'MyMCMB Refinance Opportunity Report', 0, 1, 'C')
+
+    def footer(self):
+        self.set_y(-15)
+        self.set_font('Arial', 'I', 8)
+        self.cell(0, 10, f'Page {self.page_no()}', 0, 0, 'C')
+
+    def chapter_title(self, title):
+        self.set_font('Arial', 'B', 12)
+        self.cell(0, 10, title, 0, 1, 'L')
+        self.ln(4)
+
+    def chapter_body(self, body):
+        self.set_font('Arial', '', 10)
+        self.multi_cell(0, 5, body)
+        self.ln()
+
+def create_pdf_report(data):
+    pdf = PDF()
+    pdf.add_page()
+    pdf.set_font('Arial', 'B', 16)
+    pdf.cell(0, 10, f"For: {data['Borrower First Name']} {data.get('Borrower Last Name', '')}", 0, 1)
+    
+    pdf.chapter_title("Financial Snapshot")
+    for key, value in data['snapshot'].items():
+        pdf.set_font('Arial', 'B', 10)
+        pdf.cell(60, 8, f"{key}:", 1)
+        pdf.set_font('Arial', '', 10)
+        pdf.cell(0, 8, str(value), 1)
+        pdf.ln()
+    
+    pdf.ln(10)
+    pdf.chapter_title("AI-Generated Outreach Options")
+    for option in data['outreach']:
+        pdf.set_font('Arial', 'B', 11)
+        pdf.cell(0, 10, option['title'], 0, 1)
+        pdf.set_font('Arial', 'B', 10)
+        pdf.cell(0, 8, "SMS Template:", 0, 1)
+        pdf.chapter_body(option['sms'])
+        pdf.set_font('Arial', 'B', 10)
+        pdf.cell(0, 8, "Email Template:", 0, 1)
+        pdf.chapter_body(option['email'])
+        pdf.ln(5)
+
+    return pdf.output(dest='S').encode('latin-1')
 
 # --- ADMIN RATE PANEL ---
 if app_mode == "Admin Rate Panel":
     st.title("Admin Rate Panel")
-    st.write("Set the current mortgage rates that the Refinance agent will use for calculations.")
+    password = st.text_input("Enter Admin Password", type="password")
+    if password == APP_PASSWORD:
+        st.success("Access Granted")
+        st.write("Set the current mortgage rates that the Refinance agent will use for calculations.")
 
-    if 'rates' not in st.session_state:
-        st.session_state.rates = {
-            '30yr_fixed': 6.875, '20yr_fixed': 6.625, '15yr_fixed': 6.000,
-            '5yr_arm': 7.394, 'no_cost_adj': 0.250
-        }
+        if 'rates' not in st.session_state:
+            st.session_state.rates = {
+                '30yr_fixed': 6.875, '20yr_fixed': 6.625, '15yr_fixed': 6.000,
+                '5yr_arm': 7.394, 'no_cost_adj': 0.250
+            }
 
-    with st.form("rate_form"):
-        st.subheader("Current Market Rates (%)")
-        rates = st.session_state.rates
-        rates['30yr_fixed'] = st.number_input("30-Year Fixed Rate", value=rates['30yr_fixed'], format="%.3f")
-        rates['20yr_fixed'] = st.number_input("20-Year Fixed Rate", value=rates['20yr_fixed'], format="%.3f")
-        rates['15yr_fixed'] = st.number_input("15-Year Fixed Rate", value=rates['15yr_fixed'], format="%.3f")
-        rates['5yr_arm'] = st.number_input("5/1 ARM Rate", value=rates['5yr_arm'], format="%.3f")
-        rates['no_cost_adj'] = st.number_input("No-Cost Rate Adjustment", value=rates['no_cost_adj'], format="%.3f", help="Amount to add to the 30yr rate for a no-cost option.")
-        
-        submitted = st.form_submit_button("Save Rates")
-        if submitted:
-            st.session_state.rates = rates
-            st.success("Rates updated successfully!")
+        with st.form("rate_form"):
+            st.subheader("Current Market Rates (%)")
+            rates = st.session_state.rates
+            rates['30yr_fixed'] = st.number_input("30-Year Fixed Rate", value=rates['30yr_fixed'], format="%.3f")
+            rates['20yr_fixed'] = st.number_input("20-Year Fixed Rate", value=rates['20yr_fixed'], format="%.3f")
+            rates['15yr_fixed'] = st.number_input("15-Year Fixed Rate", value=rates['15yr_fixed'], format="%.3f")
+            rates['5yr_arm'] = st.number_input("5/1 ARM Rate", value=rates['5yr_arm'], format="%.3f")
+            rates['no_cost_adj'] = st.number_input("No-Cost Rate Adjustment", value=rates['no_cost_adj'], format="%.3f", help="Amount to add to the 30yr rate for a no-cost option.")
+            
+            submitted = st.form_submit_button("Save Rates")
+            if submitted:
+                st.session_state.rates = rates
+                st.success("Rates updated successfully!")
+    elif password:
+        st.error("Incorrect Password")
 
 # --- REFINANCE INTELLIGENCE CENTER ---
 elif app_mode == "Refinance Intelligence Center":
@@ -155,7 +212,6 @@ elif app_mode == "Refinance Intelligence Center":
                     df = df_original.copy()
                     rates = st.session_state.get('rates', {'30yr_fixed': 6.875, '20yr_fixed': 6.625, '15yr_fixed': 6.000, '5yr_arm': 7.394, 'no_cost_adj': 0.250})
 
-                    # --- Data Processing Pipeline ---
                     progress_bar = st.progress(0, text="Calculating financial scenarios...")
                     df['Remaining Balance'] = df.apply(lambda row: calculate_amortized_balance(row.get('Total Original Loan Amount'), row.get('Current Interest Rate'), row.get('Loan Term (years)'), row.get('First Pymt Date')), axis=1)
                     df['Months Since First Payment'] = df['First Pymt Date'].apply(lambda x: max(0, (datetime.now().year - pd.to_datetime(x).year) * 12 + (datetime.now().month - pd.to_datetime(x).month)) if pd.notna(x) else 0)
@@ -225,19 +281,16 @@ elif app_mode == "Refinance Intelligence Center":
             output_buffer = io.BytesIO()
             with pd.ExcelWriter(output_buffer, engine='openpyxl') as writer:
                 export_df = df_results.copy()
-                
-                flat_outreach = []
                 for i, row in export_df.iterrows():
                     if row['AI_Outreach'] and row['AI_Outreach'].get('outreach_options'):
                         for j, option in enumerate(row['AI_Outreach']['outreach_options']):
                             export_df.at[i, f'Option_{j+1}_Title'] = option.get('title')
                             export_df.at[i, f'Option_{j+1}_SMS'] = option.get('sms')
                             export_df.at[i, f'Option_{j+1}_Email'] = option.get('email')
-                
                 export_df.drop('AI_Outreach', axis=1).to_excel(writer, index=False, sheet_name='AI_Outreach_Plan')
 
             st.download_button(
-                label="📥 Download Full Report as Excel",
+                label="📥 Download Full Data Report (Excel)",
                 data=output_buffer.getvalue(),
                 file_name="AI_Outreach_Plan.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
@@ -253,6 +306,23 @@ elif app_mode == "Refinance Intelligence Center":
 
                     st.subheader("AI-Generated Outreach Options")
                     if row['AI_Outreach'] and row['AI_Outreach'].get('outreach_options'):
+                        pdf_data = {
+                            "Borrower First Name": row['Borrower First Name'],
+                            "Borrower Last Name": row.get('Borrower Last Name', ''),
+                            "snapshot": {
+                                "Current P&I": f"${clean_currency(row['Current P&I Mtg Pymt']):,.2f}",
+                                "Est. New P&I (30yr)": f"${row['New P&I (30yr)']:.2f}",
+                                "Max Cash-Out": f"${row['Max Cash-Out Amount']:,.2f}"
+                            },
+                            "outreach": row['AI_Outreach']['outreach_options']
+                        }
+                        st.download_button(
+                            label="📄 Download PDF Summary",
+                            data=create_pdf_report(pdf_data),
+                            file_name=f"{row['Borrower First Name']}_Report.pdf",
+                            mime="application/pdf",
+                            key=f"pdf_{index}"
+                        )
                         for option in row['AI_Outreach']['outreach_options']:
                             st.markdown(f"#### {option.get('title', 'Outreach Option')}")
                             st.text_area("SMS", value=option.get('sms'), height=100, key=f"sms_{index}_{option.get('title')}", help="Copy this template for SMS outreach.")
