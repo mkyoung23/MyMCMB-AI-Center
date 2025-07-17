@@ -139,8 +139,8 @@ class PDF(FPDF):
 
     def chapter_title(self, title):
         self.set_font('Arial', 'B', 12)
-        self.set_fill_color(240, 242, 246) # Light gray background
-        self.cell(0, 10, title, 0, 1, 'L', fill=True)
+        self.set_fill_color(240, 242, 246)
+        self.cell(0, 10, title, 0, 1, 'L')
         self.ln(4)
 
     def chapter_body(self, body):
@@ -183,22 +183,29 @@ if app_mode == "Admin Rate Panel":
     password = st.text_input("Enter Admin Password", type="password")
     if password == APP_PASSWORD:
         st.success("Access Granted")
-        st.write("Set the current mortgage rates that the Refinance agent will use for calculations.")
+        st.write("Set the current mortgage rates. Leave a rate at 0 to disable that option for loan officers.")
 
         if 'rates' not in st.session_state:
             st.session_state.rates = {
-                '30yr_fixed': 6.875, '20yr_fixed': 6.625, '15yr_fixed': 6.000,
-                '5yr_arm': 7.394, 'no_cost_adj': 0.250
+                '30yr_fixed': 6.875, '25yr_fixed': 6.750, '20yr_fixed': 6.625, '15yr_fixed': 6.000, '10yr_fixed': 5.875,
+                '7yr_arm': 7.125, '5yr_arm': 7.394, 'heloc': 8.500, 'no_cost_adj': 0.250
             }
 
         with st.form("rate_form"):
             st.subheader("Current Market Rates (%)")
             rates = st.session_state.rates
-            rates['30yr_fixed'] = st.number_input("30-Year Fixed Rate", value=rates['30yr_fixed'], format="%.3f")
-            rates['20yr_fixed'] = st.number_input("20-Year Fixed Rate", value=rates['20yr_fixed'], format="%.3f")
-            rates['15yr_fixed'] = st.number_input("15-Year Fixed Rate", value=rates['15yr_fixed'], format="%.3f")
-            rates['5yr_arm'] = st.number_input("5/1 ARM Rate", value=rates['5yr_arm'], format="%.3f")
-            rates['no_cost_adj'] = st.number_input("No-Cost Rate Adjustment", value=rates['no_cost_adj'], format="%.3f", help="Amount to add to the 30yr rate for a no-cost option.")
+            col1, col2 = st.columns(2)
+            with col1:
+                rates['30yr_fixed'] = st.number_input("30-Year Fixed", value=rates['30yr_fixed'], format="%.3f")
+                rates['25yr_fixed'] = st.number_input("25-Year Fixed", value=rates['25yr_fixed'], format="%.3f")
+                rates['20yr_fixed'] = st.number_input("20-Year Fixed", value=rates['20yr_fixed'], format="%.3f")
+                rates['15yr_fixed'] = st.number_input("15-Year Fixed", value=rates['15yr_fixed'], format="%.3f")
+                rates['10yr_fixed'] = st.number_input("10-Year Fixed", value=rates['10yr_fixed'], format="%.3f")
+            with col2:
+                rates['7yr_arm'] = st.number_input("7/1 ARM", value=rates['7yr_arm'], format="%.3f")
+                rates['5yr_arm'] = st.number_input("5/1 ARM", value=rates['5yr_arm'], format="%.3f")
+                rates['heloc'] = st.number_input("HELOC Rate", value=rates['heloc'], format="%.3f")
+                rates['no_cost_adj'] = st.number_input("No-Cost Adj.", value=rates['no_cost_adj'], format="%.3f", help="Amount to add for a no-cost option.")
             
             submitted = st.form_submit_button("Save Rates")
             if submitted:
@@ -222,7 +229,7 @@ elif app_mode == "Refinance Intelligence Center":
             if st.button("🚀 Generate AI Outreach Plans"):
                 with st.spinner("Initiating AI Analysis... This will take a few moments."):
                     df = df_original.copy()
-                    rates = st.session_state.get('rates', {'30yr_fixed': 6.875, '20yr_fixed': 6.625, '15yr_fixed': 6.000, '5yr_arm': 7.394, 'no_cost_adj': 0.250})
+                    rates = st.session_state.get('rates', {'30yr_fixed': 6.875, '20yr_fixed': 6.625, '15yr_fixed': 6.000, '10yr_fixed': 5.875, '25yr_fixed': 6.750, '7yr_arm': 7.125, '5yr_arm': 7.394, 'heloc': 8.500, 'no_cost_adj': 0.250})
 
                     progress_bar = st.progress(0, text="Calculating financial scenarios...")
                     df['Remaining Balance'] = df.apply(lambda row: calculate_amortized_balance(row.get('Total Original Loan Amount'), row.get('Current Interest Rate'), row.get('Loan Term (years)'), row.get('First Pymt Date')), axis=1)
@@ -232,19 +239,20 @@ elif app_mode == "Refinance Intelligence Center":
                     df['Max Cash-Out Amount'] = (df['Estimated Home Value'] * 0.80) - df['Remaining Balance']
                     df['Max Cash-Out Amount'] = df['Max Cash-Out Amount'].apply(lambda x: max(0, round(x, 2)))
                     
-                    for term, rate_key in [('30yr', '30yr_fixed'), ('20yr', '20yr_fixed'), ('15yr', '15yr_fixed')]:
-                        rate = rates[rate_key] / 100
-                        df[f'New P&I ({term})'] = df.apply(lambda row: calculate_new_pi(row['Remaining Balance'], rate, int(term.replace('yr',''))), axis=1)
-                        df[f'Savings ({term})'] = df.apply(lambda row: clean_currency(row['Current P&I Mtg Pymt']) - row[f'New P&I ({term})'], axis=1)
+                    for term, rate_key in [('30yr', '30yr_fixed'), ('20yr', '20yr_fixed'), ('15yr', '15yr_fixed'), ('10yr', '10yr_fixed')]:
+                        rate = rates.get(rate_key, 0) / 100
+                        if rate > 0:
+                            df[f'New P&I ({term})'] = df.apply(lambda row: calculate_new_pi(row['Remaining Balance'], rate, int(term.replace('yr',''))), axis=1)
+                            df[f'Savings ({term})'] = df.apply(lambda row: clean_currency(row['Current P&I Mtg Pymt']) - row[f'New P&I ({term})'], axis=1)
                     
                     outreach_results = []
                     for i, row in df.iterrows():
                         progress_bar.progress((i + 1) / len(df), text=f"Generating AI outreach for {row['Borrower First Name']}...")
                         
                         current_payment = clean_currency(row['Current P&I Mtg Pymt'])
-                        new_rate = rates['30yr_fixed'] / 100
+                        new_rate = rates.get('30yr_fixed', 0) / 100
                         try:
-                            max_loan_for_same_payment = (current_payment * (((1 + new_rate/12)**360) - 1)) / ((new_rate/12) * (1 + new_rate/12)**360)
+                            max_loan_for_same_payment = (current_payment * (((1 + new_rate/12)**360) - 1)) / ((new_rate/12) * (1 + new_rate/12)**360) if new_rate > 0 else 0
                             cash_out_same_payment = max(0, max_loan_for_same_payment - row['Remaining Balance'])
                         except (ZeroDivisionError, ValueError):
                             cash_out_same_payment = 0
@@ -258,8 +266,8 @@ elif app_mode == "Refinance Intelligence Center":
                         - Estimated Home Value: ${row['Estimated Home Value']:.2f}
                         
                         **Calculated Refinance Scenarios:**
-                        1.  **30-Year Fixed:** New Payment: ${row['New P&I (30yr)']:.2f}, Monthly Savings: ${row['Savings (30yr)']:.2f}
-                        2.  **15-Year Fixed:** New Payment: ${row['New P&I (15yr)']:.2f}, Monthly Savings: ${row['Savings (15yr)']:.2f}
+                        1.  **30-Year Fixed:** New Payment: ${row.get('New P&I (30yr)', 0):.2f}, Monthly Savings: ${row.get('Savings (30yr)', 0):.2f}
+                        2.  **15-Year Fixed:** New Payment: ${row.get('New P&I (15yr)', 0):.2f}, Monthly Savings: ${row.get('Savings (15yr)', 0):.2f}
                         3.  **Max Cash-Out:** You can offer up to ${row['Max Cash-Out Amount']:.2f} in cash.
                         4.  **"Same Payment" Cash-Out:** You can offer approx. ${cash_out_same_payment:.2f} in cash while keeping their payment nearly the same.
 
@@ -309,11 +317,11 @@ elif app_mode == "Refinance Intelligence Center":
             )
 
             for index, row in df_results.iterrows():
-                with st.expander(f"👤 **{row['Borrower First Name']} {row.get('Borrower Last Name', '')}** | Max Savings: **${row['Savings (30yr)']:.2f}/mo**"):
+                with st.expander(f"👤 **{row['Borrower First Name']} {row.get('Borrower Last Name', '')}** | Max Savings: **${row.get('Savings (30yr)', 0):.2f}/mo**"):
                     st.subheader("Financial Snapshot")
                     col1, col2, col3 = st.columns(3)
                     col1.metric("Current P&I", f"${clean_currency(row['Current P&I Mtg Pymt']):,.2f}")
-                    col2.metric("Est. New P&I (30yr)", f"${row['New P&I (30yr)']:.2f}", delta=f"{-row['Savings (30yr)']:.2f}")
+                    col2.metric("Est. New P&I (30yr)", f"${row.get('New P&I (30yr)', 0):.2f}", delta=f"{-row.get('Savings (30yr)', 0):.2f}")
                     col3.metric("Max Cash-Out", f"${row['Max Cash-Out Amount']:,.2f}")
 
                     st.subheader("AI-Generated Outreach Options")
@@ -323,7 +331,7 @@ elif app_mode == "Refinance Intelligence Center":
                             "Borrower Last Name": row.get('Borrower Last Name', ''),
                             "snapshot": {
                                 "Current P&I": f"${clean_currency(row['Current P&I Mtg Pymt']):,.2f}",
-                                "Est. New P&I (30yr)": f"${row['New P&I (30yr)']:.2f}",
+                                "Est. New P&I (30yr)": f"${row.get('New P&I (30yr)', 0):.2f}",
                                 "Max Cash-Out": f"${row['Max Cash-Out Amount']:,.2f}"
                             },
                             "outreach": row['AI_Outreach']['outreach_options']
