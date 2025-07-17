@@ -45,15 +45,15 @@ st.markdown("""
 # --- API & MODEL SETUP ---
 try:
     # Load the Gemini API key from Streamlit secrets for security
-    GEMINI_API_KEY = st.secrets.get("GEMINI_API_KEY", "")
+    GEMINI_API_KEY = st.secrets.get("GEMINI_API_KEY")
     if not GEMINI_API_KEY:
-        st.error("CRITICAL ERROR: Your Gemini API Key is not configured. Please add it to your Streamlit Secrets.")
+        st.error("CRITICAL ERROR: Your Gemini API Key is not configured. Please add it to your Streamlit Secrets in the correct TOML format.")
         st.stop()
         
     genai.configure(api_key=GEMINI_API_KEY)
     model = genai.GenerativeModel('gemini-1.5-flash')
 except Exception as e:
-    st.error(f"Could not configure AI models. Error: {e}")
+    st.error(f"Could not configure AI models. Please ensure your API keys are correctly set in Streamlit Secrets. Error: {e}")
     st.stop()
 
 # --- SIDEBAR & NAVIGATION ---
