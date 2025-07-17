@@ -125,6 +125,32 @@ def calculate_amortized_balance(principal, annual_rate, term_years, first_paymen
     except Exception:
         return principal
 
+# Mapping of common header variations to canonical names
+COLUMN_ALIASES = {
+    "Borrower First Name": ["borrower first name", "first name", "fname", "first"],
+    "Borrower Last Name": ["borrower last name", "last name", "lname", "last"],
+    "Current P&I Mtg Pymt": ["current p&i mtg pymt", "current payment", "pi payment", "current p&i"],
+    "Original Property Value": ["original property value", "purchase price", "original home value", "home value"],
+    "Total Original Loan Amount": ["total original loan amount", "original loan amount", "loan amount", "original loan balance"],
+    "Current Interest Rate": ["current interest rate", "interest rate", "rate"],
+    "Loan Term (years)": ["loan term (years)", "loan term", "term"],
+    "First Pymt Date": ["first pymt date", "first payment date", "first payment"],
+    "City": ["city", "property city", "borrower city"],
+}
+
+REQUIRED_COLUMNS = list(COLUMN_ALIASES.keys())
+
+def normalize_columns(df: pd.DataFrame) -> pd.DataFrame:
+    """Rename columns using COLUMN_ALIASES and return the DataFrame."""
+    rename_map = {}
+    lower_map = {c.lower(): c for c in df.columns}
+    for target, aliases in COLUMN_ALIASES.items():
+        for alias in aliases:
+            if alias.lower() in lower_map:
+                rename_map[lower_map[alias.lower()]] = target
+                break
+    return df.rename(columns=rename_map)
+
 # --- PDF EXPORT FUNCTION ---
 class PDF(FPDF):
     def header(self):
@@ -220,12 +246,37 @@ elif app_mode == "Refinance Intelligence Center":
     st.title("Refinance Intelligence Center")
     st.markdown("### Upload a borrower data sheet to generate hyper-personalized outreach plans.")
 
+    with st.expander("📊 Required Column Mapping"):
+        mapping_df = pd.DataFrame({
+            "Required Column": list(COLUMN_ALIASES.keys()),
+            "Accepted Names": [", ".join(v) for v in COLUMN_ALIASES.values()],
+        })
+        st.dataframe(mapping_df, use_container_width=True)
+
+    appreciation_rate = st.number_input(
+        "Assumed Annual Home Appreciation Rate (%)",
+        min_value=0.0,
+        max_value=10.0,
+        value=4.6,
+        step=0.1,
+        help="Used to estimate each borrower's current home value."
+    )
+
     uploaded_file = st.file_uploader("Choose a borrower Excel file", type=['xlsx'])
 
     if uploaded_file:
         try:
             df_original = pd.read_excel(uploaded_file, engine='openpyxl')
-            st.success(f"Successfully loaded {len(df_original)} borrowers from '{uploaded_file.name}'.")
+            df_original = normalize_columns(df_original)
+            missing = [c for c in REQUIRED_COLUMNS if c not in df_original.columns]
+            if missing:
+                st.error(
+                    f"Missing required columns after header normalization: {', '.join(missing)}."
+                )
+                st.stop()
+            st.success(
+                f"Successfully loaded {len(df_original)} borrowers from '{uploaded_file.name}'."
+            )
 
             if st.button("🚀 Generate AI Outreach Plans"):
                 with st.spinner("Initiating AI Analysis... This will take a few moments."):
@@ -235,16 +286,38 @@ elif app_mode == "Refinance Intelligence Center":
                     progress_bar = st.progress(0, text="Calculating financial scenarios...")
                     df['Remaining Balance'] = df.apply(lambda row: calculate_amortized_balance(row.get('Total Original Loan Amount'), row.get('Current Interest Rate'), row.get('Loan Term (years)'), row.get('First Pymt Date')), axis=1)
                     df['Months Since First Payment'] = df['First Pymt Date'].apply(lambda x: max(0, (datetime.now().year - pd.to_datetime(x).year) * 12 + (datetime.now().month - pd.to_datetime(x).month)) if pd.notna(x) else 0)
-                    df['Estimated Home Value'] = df.apply(lambda row: round(clean_currency(row.get('Original Property Value', 0)) * (1.046 ** (row['Months Since First Payment'] / 12)), 2), axis=1)
+                    df['Estimated Home Value'] = df.apply(
+                        lambda row: round(
+                            clean_currency(row.get('Original Property Value', 0))
+                            * ((1 + appreciation_rate / 100) ** (row['Months Since First Payment'] / 12)),
+                            2,
+                        ),
+                        axis=1,
+                    )
                     df['Estimated LTV'] = (df['Remaining Balance'] / df['Estimated Home Value']).fillna(0).replace([float('inf'), -float('inf')], 0)
                     df['Max Cash-Out Amount'] = (df['Estimated Home Value'] * 0.80) - df['Remaining Balance']
                     df['Max Cash-Out Amount'] = df['Max Cash-Out Amount'].apply(lambda x: max(0, round(x, 2)))
                     
-                    for term, rate_key in [('30yr', '30yr_fixed'), ('25yr', '25yr_fixed'), ('20yr', '20yr_fixed'), ('15yr', '15yr_fixed'), ('10yr', '10yr_fixed')]:
+                    rate_terms = [
+                        ('30yr', '30yr_fixed', 30),
+                        ('25yr', '25yr_fixed', 25),
+                        ('20yr', '20yr_fixed', 20),
+                        ('15yr', '15yr_fixed', 15),
+                        ('10yr', '10yr_fixed', 10),
+                        ('7yrARM', '7yr_arm', 30),
+                        ('5yrARM', '5yr_arm', 30),
+                    ]
+
+                    for term, rate_key, years in rate_terms:
                         rate = rates.get(rate_key, 0) / 100
                         if rate > 0:
-                            df[f'New P&I ({term})'] = df.apply(lambda row: calculate_new_pi(row['Remaining Balance'], rate, int(term.replace('yr',''))), axis=1)
+                            df[f'New P&I ({term})'] = df.apply(lambda row: calculate_new_pi(row['Remaining Balance'], rate, years), axis=1)
                             df[f'Savings ({term})'] = df.apply(lambda row: clean_currency(row['Current P&I Mtg Pymt']) - row[f'New P&I ({term})'], axis=1)
+
+                    # Heloc interest-only payment estimate
+                    heloc_rate = rates.get('heloc', 0) / 100
+                    if heloc_rate > 0:
+                        df['HELOC Payment (interest-only)'] = df['Remaining Balance'] * (heloc_rate / 12)
                     
                     outreach_results = []
                     for i, row in df.iterrows():
@@ -273,7 +346,7 @@ elif app_mode == "Refinance Intelligence Center":
                         4.  **"Same Payment" Cash-Out:** You can offer approx. ${cash_out_same_payment:.2f} in cash while keeping their payment nearly the same.
 
                         **Task:**
-                        Generate a JSON object with four distinct outreach options. Each option should have a 'title', a concise 'sms' template, and a professional 'email' template.
+                        Return a JSON object with a key named 'outreach_options'. That list should contain four distinct outreach options. Each option must have a 'title', a concise 'sms' template, and a professional 'email' template.
                         1.  **"Significant Savings Alert"**: Focus on the 30-year option's direct monthly savings.
                         2.  **"Aggressive Payoff Plan"**: Focus on the 15-year option, highlighting owning their home faster.
                         3.  **"Leverage Your Equity"**: Focus on the maximum cash-out option for home improvements or debt consolidation.
@@ -281,10 +354,20 @@ elif app_mode == "Refinance Intelligence Center":
                         Make the messages sound authentic. For one of the emails, mention a positive local event or trend in {row.get('City', 'their area')} to personalize it further.
                         """
                         try:
-                            response = model.generate_content(prompt, generation_config=genai.types.GenerationConfig(response_mime_type="application/json"))
-                            outreach_results.append(json.loads(response.text))
+                            response = model.generate_content(
+                                prompt,
+                                generation_config=genai.types.GenerationConfig(
+                                    response_mime_type="application/json"
+                                ),
+                            )
+                            data = json.loads(response.text)
+                            if 'outreach_options' not in data:
+                                raise ValueError("Missing 'outreach_options' key")
+                            outreach_results.append(data)
                         except Exception as e:
-                            st.warning(f"AI content generation failed for {row['Borrower First Name']}. Error: {e}")
+                            st.warning(
+                                f"AI content generation failed for {row['Borrower First Name']}. Error: {e}"
+                            )
                             outreach_results.append({"outreach_options": []})
 
                     df['AI_Outreach'] = outreach_results
@@ -308,7 +391,25 @@ elif app_mode == "Refinance Intelligence Center":
                             export_df.at[i, f'Option_{j+1}_Title'] = option.get('title')
                             export_df.at[i, f'Option_{j+1}_SMS'] = option.get('sms')
                             export_df.at[i, f'Option_{j+1}_Email'] = option.get('email')
-                export_df.drop('AI_Outreach', axis=1).to_excel(writer, index=False, sheet_name='AI_Outreach_Plan')
+                export_df.drop('AI_Outreach', axis=1, inplace=True)
+
+                preferred_order = [
+                    'Borrower First Name', 'Borrower Last Name', 'City',
+                    'Current P&I Mtg Pymt', 'Remaining Balance',
+                    'Estimated Home Value', 'Estimated LTV', 'Max Cash-Out Amount',
+                    'HELOC Payment (interest-only)',
+                ]
+                scenario_cols = sorted([c for c in export_df.columns if 'New P&I' in c or 'Savings' in c])
+                cols_in_order = [c for c in preferred_order if c in export_df.columns] + scenario_cols
+                cols_in_order += [c for c in export_df.columns if c not in cols_in_order]
+                export_df = export_df[cols_in_order]
+
+                export_df.to_excel(writer, index=False, sheet_name='AI_Outreach_Plan')
+                worksheet = writer.book.active
+                worksheet.freeze_panes = 'A2'
+                for column_cells in worksheet.columns:
+                    length = max(len(str(cell.value)) if cell.value is not None else 0 for cell in column_cells)
+                    worksheet.column_dimensions[column_cells[0].column_letter].width = min(50, length + 2)
 
             st.download_button(
                 label="📥 Download Full Data Report (Excel)",
