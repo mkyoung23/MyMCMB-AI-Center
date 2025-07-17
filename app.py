@@ -18,18 +18,19 @@ st.set_page_config(
 st.markdown("""
 <style>
     .stApp {
-        background-color: #f0f2f6;
+        background-color: #020617; /* Slate 950 */
+        color: #e2e8f0; /* Slate 200 */
     }
     .main .block-container {
         padding-top: 2rem;
         padding-bottom: 2rem;
     }
     h1, h2, h3 {
-        color: #1e3a8a; /* Dark Blue */
+        color: #ffffff; 
         font-weight: 700;
     }
     .stButton>button {
-        background-color: #1e3a8a;
+        background-color: #2563eb; /* Blue 600 */
         color: white;
         border-radius: 0.5rem;
         border: none;
@@ -38,8 +39,17 @@ st.markdown("""
         transition: all 0.2s ease-in-out;
     }
     .stButton>button:hover {
-        background-color: #1e40af;
+        background-color: #1d4ed8; /* Blue 700 */
         transform: translateY(-2px);
+    }
+    .st-expander, .st-emotion-cache-18ni7ap {
+        background-color: #0f172a; /* Slate 900 */
+        border: 1px solid #1e293b; /* Slate 800 */
+        border-radius: 0.5rem;
+    }
+    .stTextInput>div>div>input, .stNumberInput>div>div>input {
+        background-color: #1e293b; /* Slate 800 */
+        color: #e2e8f0;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -49,7 +59,7 @@ try:
     GEMINI_API_KEY = st.secrets.get("GEMINI_API_KEY")
     APP_PASSWORD = st.secrets.get("APP_PASSWORD")
     if not GEMINI_API_KEY or not APP_PASSWORD:
-        st.error("CRITICAL ERROR: API Keys or App Password are not configured in Streamlit Secrets.")
+        st.error("CRITICAL ERROR: API Keys or App Password are not configured. Please ensure they are set in your Streamlit Secrets in the correct TOML format.")
         st.stop()
         
     genai.configure(api_key=GEMINI_API_KEY)
@@ -120,6 +130,7 @@ class PDF(FPDF):
     def header(self):
         self.set_font('Arial', 'B', 12)
         self.cell(0, 10, 'MyMCMB Refinance Opportunity Report', 0, 1, 'C')
+        self.ln(5)
 
     def footer(self):
         self.set_y(-15)
@@ -128,12 +139,13 @@ class PDF(FPDF):
 
     def chapter_title(self, title):
         self.set_font('Arial', 'B', 12)
-        self.cell(0, 10, title, 0, 1, 'L')
+        self.set_fill_color(240, 242, 246) # Light gray background
+        self.cell(0, 10, title, 0, 1, 'L', fill=True)
         self.ln(4)
 
     def chapter_body(self, body):
         self.set_font('Arial', '', 10)
-        self.multi_cell(0, 5, body)
+        self.multi_cell(0, 5, body.encode('latin-1', 'replace').decode('latin-1'))
         self.ln()
 
 def create_pdf_report(data):
@@ -145,7 +157,7 @@ def create_pdf_report(data):
     pdf.chapter_title("Financial Snapshot")
     for key, value in data['snapshot'].items():
         pdf.set_font('Arial', 'B', 10)
-        pdf.cell(60, 8, f"{key}:", 1)
+        pdf.cell(80, 8, f"{key}:", 1)
         pdf.set_font('Arial', '', 10)
         pdf.cell(0, 8, str(value), 1)
         pdf.ln()
