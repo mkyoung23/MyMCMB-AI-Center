@@ -66,9 +66,7 @@ try:
     genai.configure(api_key=GEMINI_API_KEY)
     model = genai.GenerativeModel('gemini-1.5-flash')
 except Exception as e:
-    st.er
-    
-    ror(f"Could not configure AI models. Error: {e}")
+    st.error(f"Could not configure AI models. Error: {e}")
     st.stop()
 
 # --- SIDEBAR & NAVIGATION ---
@@ -249,170 +247,171 @@ if app_mode == "Admin Rate Panel":
 
 # --- REFINANCE INTELLIGENCE CENTER ---
 elif app_mode == "Refinance Intelligence Center":
-                    st.title("Refinance Intelligence Center")
-                    st.markdown("### Upload a borrower data sheet to generate hyper-personalized outreach plans.")
-                
-                with st.expander("📊 Required Column Mapping"):
-                    mapping_df = pd .DataFrame({
-                        "Required Column": list(COLUMN_ALIASES.keys()),
-                        "Accepted Names": [", ".join(v) for v in COLUMN_ALIASES.values()],
-                    })
-                    st.dataframe(mapping_df, use_container_width=True)
-                
-                    appreciation_rate = st.number_input(
-                        "Assumed Annual Home Appreciation Rate (%)",
-                        min_value=0.0,
-                        max_value=10.0,
-                        value=7.0,
-                        step=0.1,
-                        help="Used to estimate each borrower's current home value."
-                    )   
-                         uploaded_file = st.file_uploader("Choose a borrower Excel file", type=['xlsx'])
-                
-                    if uploaded_file:
+    st.title("Refinance Intelligence Center")
+    st.markdown("### Upload a borrower data sheet to generate hyper-personalized outreach plans.")
+    
+    with st.expander("📊 Required Column Mapping"):
+        mapping_df = pd.DataFrame({
+            "Required Column": list(COLUMN_ALIASES.keys()),
+            "Accepted Names": [", ".join(v) for v in COLUMN_ALIASES.values()],
+        })
+        st.dataframe(mapping_df, use_container_width=True)
+    
+    appreciation_rate = st.number_input(
+        "Assumed Annual Home Appreciation Rate (%)",
+        min_value=0.0,
+        max_value=10.0,
+        value=7.0,
+        step=0.1,
+        help="Used to estimate each borrower's current home value."
+    )   
+    uploaded_file = st.file_uploader("Choose a borrower Excel file", type=['xlsx'])
+    
+    if uploaded_file:
+        try:
+            df_original = pd.read_excel(uploaded_file, engine='openpyxl')
+            df_original = normalize_columns(df_original)
+            missing = [c for c in REQUIRED_COLUMNS if c not in df_original.columns]
+            if missing:
+                st.error(
+                    f"Missing required columns after header normalization: {', '.join(missing)}."
+                )
+                st.stop()
+            st.success(
+                f"Successfully loaded {len(df_original)} borrowers from '{uploaded_file.name}'."
+            )
+            
+            if st.button("🚀 Generate AI Outreach Plans"):
+                with st.spinner("Initiating AI Analysis... This will take a few moments."):
+                    df = df_original.copy()
+                    rates = st.session_state.get('rates', {'30yr_fixed': 6.875, '20yr_fixed': 6.625, '15yr_fixed': 6.000, '10yr_fixed': 5.875, '25yr_fixed': 6.750, '7yr_arm': 7.125, '5yr_arm': 7.394, 'heloc': 8.500, 'no_cost_adj': 0.250})
+    
+                    progress_bar = st.progress(0, text="Calculating financial scenarios...")
+                    df['Remaining Balance'] = df.apply(lambda row: calculate_amortized_balance(row.get('Total Original Loan Amount'), row.get('Current Interest Rate'), row.get('Loan Term (years)'), row.get('First Pymt Date')), axis=1)
+                    df['Months Since First Payment'] = df['First Pymt Date'].apply(lambda x: max(0, (datetime.now().year - pd.to_datetime(x).year) * 12 + (datetime.now().month - pd.to_datetime(x).month)) if pd.notna(x) else 0)
+                    df['Estimated Home Value'] = df.apply(
+                        lambda row: round(
+                            clean_currency(row.get('Original Property Value', 0))
+                            * ((1 + appreciation_rate / 100) ** (row['Months Since First Payment'] / 12)),
+                            2,
+                        ),
+                        axis=1,
+                    )
+                    df['Estimated LTV'] = (
+                        (df['Remaining Balance'] / df['Estimated Home Value'])
+                    ).fillna(0).replace([float('inf'), -float('inf')], 0).round(4)
+                    df['Max Cash-Out Amount'] = (df['Estimated Home Value'] * 0.80) - df['Remaining Balance']
+                    df['Max Cash-Out Amount'] = df['Max Cash-Out Amount'].apply(lambda x: max(0, round(x, 2)))
+                    
+                    rate_terms = [
+                        ('30yr', '30yr_fixed', 30),
+                        ('25yr', '25yr_fixed', 25),
+                        ('20yr', '20yr_fixed', 20),
+                        ('15yr', '15yr_fixed', 15),
+                        ('10yr', '10yr_fixed', 10),
+                        ('7yrARM', '7yr_arm', 30),
+                        ('5yrARM', '5yr_arm', 30),
+                    ]
+    
+                    for term, rate_key, years in rate_terms:
+                        rate = rates.get(rate_key, 0) / 100
+                        if rate > 0:
+                            df[f'New P&I ({term})'] = df.apply(lambda row: calculate_new_pi(row['Remaining Balance'], rate, years), axis=1)
+                            df[f'Savings ({term})'] = df.apply(lambda row: clean_currency(row['Current P&I Mtg Pymt']) - row[f'New P&I ({term})'], axis=1)
+    
+                    # Heloc interest-only payment estimate
+                    heloc_rate = rates.get('heloc', 0) / 100
+                    if heloc_rate > 0:
+                        df['HELOC Payment (interest-only)'] = df['Max Cash-Out Amount'] * (heloc_rate / 12)
+                    
+                    outreach_results = []
+                    for i, row in df.iterrows():
+                        progress_bar.progress((i + 1) / len(df), text=f"Generating AI outreach for {row['Borrower First Name']}...")
+    
+                        current_payment = clean_currency(row['Current P&I Mtg Pymt'])
+                        new_rate = rates.get('30yr_fixed', 0) / 100
+                        no_cost_adj = rates.get('no_cost_adj', 0)
                         try:
-                            df_original = pd.read_excel(uploaded_file, engine='openpyxl')
-                            df_original = normalize_columns(df_original)
-                            missing = [c for c in REQUIRED_COLUMNS if c not in df_original.columns]
-                            if missing:
-                                st.error(
-                                    f"Missing required columns after header normalization: {', '.join(missing)}."
-                                )
-                                st.stop()
-                        st.success(
-                            f"Successfully loaded {len(df_original)} borrowers from '{uploaded_file.name}'."
-                        )
-            
-                        if st.button("🚀 Generate AI Outreach Plans"):
-                            with st.spinner("Initiating AI Analysis... This will take a few moments."):
-                                df = df_original.copy()
-                                rates = st.session_state.get('rates', {'30yr_fixed': 6.875, '20yr_fixed': 6.625, '15yr_fixed': 6.000, '10yr_fixed': 5.875, '25yr_fixed': 6.750, '7yr_arm': 7.125, '5yr_arm': 7.394, 'heloc': 8.500, 'no_cost_adj': 0.250})
-            
-                                progress_bar = st.progress(0, text="Calculating financial scenarios...")
-                                df['Remaining Balance'] = df.apply(lambda row: calculate_amortized_balance(row.get('Total Original Loan Amount'), row.get('Current Interest Rate'), row.get('Loan Term (years)'), row.get('First Pymt Date')), axis=1)
-                                df['Months Since First Payment'] = df['First Pymt Date'].apply(lambda x: max(0, (datetime.now().year - pd.to_datetime(x).year) * 12 + (datetime.now().month - pd.to_datetime(x).month)) if pd.notna(x) else 0)
-                                df['Estimated Home Value'] = df.apply(
-                                    lambda row: round(
-                                        clean_currency(row.get('Original Property Value', 0))
-                                        * ((1 + appreciation_rate / 100) ** (row['Months Since First Payment'] / 12)),
-                                        2,
-                                    ),
-                                    axis=1,
-                                )
-            df['Estimated LTV'] = (
-                (df['Remaining Balance'] / df['Estimated Home Value'])
-            ).fillna(0).replace([float('inf'), -float('inf')], 0).round(4)
-                                df['Max Cash-Out Amount'] = (df['Estimated Home Value'] * 0.80) - df['Remaining Balance']
-                                df['Max Cash-Out Amount'] = df['Max Cash-Out Amount'].apply(lambda x: max(0, round(x, 2)))
-                                
-                                rate_terms = [
-                                    ('30yr', '30yr_fixed', 30),
-                                    ('25yr', '25yr_fixed', 25),
-                                    ('20yr', '20yr_fixed', 20),
-                                    ('15yr', '15yr_fixed', 15),
-                                    ('10yr', '10yr_fixed', 10),
-                                    ('7yrARM', '7yr_arm', 30),
-                                    ('5yrARM', '5yr_arm', 30),
-                                ]
-            
-                                for term, rate_key, years in rate_terms:
-                                    rate = rates.get(rate_key, 0) / 100
-                                    if rate > 0:
-                                        df[f'New P&I ({term})'] = df.apply(lambda row: calculate_new_pi(row['Remaining Balance'], rate, years), axis=1)
-                                        df[f'Savings ({term})'] = df.apply(lambda row: clean_currency(row['Current P&I Mtg Pymt']) - row[f'New P&I ({term})'], axis=1)
-            
-                                # Heloc interest-only payment estimate
-                                heloc_rate = rates.get('heloc', 0) / 100
-                                if heloc_rate > 0:
-            df['HELOC Payment (interest-only)'] = df['Max Cash-Out Amount'] * (heloc_rate / 12)
-                                outreach_results = []
-                                for i, row in df.iterrows():
-                                    progress_bar.progress((i + 1) / len(df), text=f"Generating AI outreach for {row['Borrower First Name']}...")
-            
-                                    current_payment = clean_currency(row['Current P&I Mtg Pymt'])
-                                    new_rate = rates.get('30yr_fixed', 0) / 100
-                                    no_cost_adj = rates.get('no_cost_adj', 0)
-                                    try:
-                                        max_loan_for_same_payment = (current_payment * (((1 + new_rate/12)**360) - 1)) / ((new_rate/12) * (1 + new_rate/12)**360) if new_rate > 0 else 0
-                                        cash_out_same_payment = max(0, max_loan_for_same_payment - row['Remaining Balance'])
-                                    except (ZeroDivisionError, ValueError):
-                                        cash_out_same_payment = 0
-            
-                                    prompt = f"""
-                                    You are an expert mortgage loan officer assistant for MyMCMB. Remind {row['Borrower First Name']} that you personally helped close their previous loan. The tone must be professional yet friendly and brief.
-            
-                                    **Borrower's Financial Snapshot:**
-                                    - Property City: {row.get('City', 'their city')}
-                                    - Current Monthly P&I: ${clean_currency(row['Current P&I Mtg Pymt']):.2f}
-                                    - Estimated Home Value: ${row['Estimated Home Value']:.2f}
-                                    - Estimated LTV: {row['Estimated LTV']:.2f}%
-            
-                                    **Calculated Refinance Scenarios:**
-                                    1.  **30-Year Fixed:** New Payment: ${row.get('New P&I (30yr)', 0):.2f}, Monthly Savings: ${row.get('Savings (30yr)', 0):.2f}
-                                    2.  **15-Year Fixed:** New Payment: ${row.get('New P&I (15yr)', 0):.2f}, Monthly Savings: ${row.get('Savings (15yr)', 0):.2f}
-                                    3.  **Max Cash-Out:** You can offer up to ${row['Max Cash-Out Amount']:.2f} in cash.
-                                    4.  **"Same Payment" Cash-Out:** You can offer approx. ${cash_out_same_payment:.2f} in cash while keeping their payment nearly the same.
-            
-                                    **Task:**
-            Return a JSON object with a key named 'outreach_options'. That list should contain four distinct outreach options. Each option must have a 'title', a concise 'sms' template, and a professional 'email' template. Mention that we offer a previous-client **no-cost refi** option where all fees are covered by the lender for roughly +{no_cost_adj:.3f}% to the rate if applicable.
-                                    1.  **"Significant Savings Alert"**: Focus on the 30-year option's direct monthly savings.
-                                    2.  **"Aggressive Payoff Plan"**: Focus on the 15-year option, highlighting owning their home faster.
-                                    3.  **"Leverage Your Equity"**: Focus on the maximum cash-out option for home improvements or debt consolidation.
-                                    4.  **"Cash with No Payment Shock"**: Focus on the 'same payment' cash-out option.
-                                    Make the messages sound authentic. For one of the emails, mention a positive local event or trend in {row.get('City', 'their area')} to personalize it further.
-                                    """
-                                    try:
-                                        response = model.generate_content(
-                                            prompt,
-                                            generation_config=genai.types.GenerationConfig(
-                                                response_mime_type="application/json"
-                                            ),
-                                        )
-                                        data = json.loads(response.text)
-                                        if 'outreach_options' not in data:
-            raise ValueError("AI response missing required 'outreach_options' key")
-                                        outreach_results.append(data)
-                                    except Exception as e:
-                                        st.warning(
-                                            f"AI content generation failed for {row['Borrower First Name']}. Error: {e}"
-                                        )
-                                        outreach_results.append({"outreach_options": []})
-            
-                                df['AI_Outreach'] = outreach_results
-                                st.session_state.df_results = df
-                                st.success("Analysis complete! View the outreach plans below.")
-            
-                    except Exception as e:
-                        st.error(f"An error occurred while processing the file. Please check your Excel sheet for correct column names and data types. Error: {e}")
-            
-                    if 'df_results' in st.session_state:
-                        st.markdown("---")
-                        st.header("Generated Outreach Blueprints")
-                        df_results = st.session_state.df_results
-                        
-                        output_buffer = io.BytesIO()
-                        with pd.ExcelWriter(output_buffer, engine='openpyxl') as writer:
-                            export_df = df_results.copy()
-                            for i, row in export_df.iterrows():
-                                if row['AI_Outreach'] and row['AI_Outreach'].get('outreach_options'):
-                                    for j, option in enumerate(row['AI_Outreach']['outreach_options']):
-                                        export_df.at[i, f'Option_{j+1}_Title'] = option.get('title')
-                                        export_df.at[i, f'Option_{j+1}_SMS'] = option.get('sms')
-                                        export_df.at[i, f'Option_{j+1}_Email'] = option.get('email')
+                            max_loan_for_same_payment = (current_payment * (((1 + new_rate/12)**360) - 1)) / ((new_rate/12) * (1 + new_rate/12)**360) if new_rate > 0 else 0
+                            cash_out_same_payment = max(0, max_loan_for_same_payment - row['Remaining Balance'])
+                        except (ZeroDivisionError, ValueError):
+                            cash_out_same_payment = 0
+    
+                        prompt = f"""
+                        You are an expert mortgage loan officer assistant for MyMCMB. Remind {row['Borrower First Name']} that you personally helped close their previous loan. The tone must be professional yet friendly and brief.
+    
+                        **Borrower's Financial Snapshot:**
+                        - Property City: {row.get('City', 'their city')}
+                        - Current Monthly P&I: ${clean_currency(row['Current P&I Mtg Pymt']):.2f}
+                        - Estimated Home Value: ${row['Estimated Home Value']:.2f}
+                        - Estimated LTV: {row['Estimated LTV']:.2f}%
+    
+                        **Calculated Refinance Scenarios:**
+                        1.  **30-Year Fixed:** New Payment: ${row.get('New P&I (30yr)', 0):.2f}, Monthly Savings: ${row.get('Savings (30yr)', 0):.2f}
+                        2.  **15-Year Fixed:** New Payment: ${row.get('New P&I (15yr)', 0):.2f}, Monthly Savings: ${row.get('Savings (15yr)', 0):.2f}
+                        3.  **Max Cash-Out:** You can offer up to ${row['Max Cash-Out Amount']:.2f} in cash.
+                        4.  **"Same Payment" Cash-Out:** You can offer approx. ${cash_out_same_payment:.2f} in cash while keeping their payment nearly the same.
+    
+                        **Task:**
+                        Return a JSON object with a key named 'outreach_options'. That list should contain four distinct outreach options. Each option must have a 'title', a concise 'sms' template, and a professional 'email' template. Mention that we offer a previous-client **no-cost refi** option where all fees are covered by the lender for roughly +{no_cost_adj:.3f}% to the rate if applicable.
+                        1.  **"Significant Savings Alert"**: Focus on the 30-year option's direct monthly savings.
+                        2.  **"Aggressive Payoff Plan"**: Focus on the 15-year option, highlighting owning their home faster.
+                        3.  **"Leverage Your Equity"**: Focus on the maximum cash-out option for home improvements or debt consolidation.
+                        4.  **"Cash with No Payment Shock"**: Focus on the 'same payment' cash-out option.
+                        Make the messages sound authentic. For one of the emails, mention a positive local event or trend in {row.get('City', 'their area')} to personalize it further.
+                        """
+                        try:
+                            response = model.generate_content(
+                                prompt,
+                                generation_config=genai.types.GenerationConfig(
+                                    response_mime_type="application/json"
+                                ),
+                            )
+                            data = json.loads(response.text)
+                            if 'outreach_options' not in data:
+                                raise ValueError("AI response missing required 'outreach_options' key")
+                            outreach_results.append(data)
+                        except Exception as e:
+                            st.warning(
+                                f"AI content generation failed for {row['Borrower First Name']}. Error: {e}"
+                            )
+                            outreach_results.append({"outreach_options": []})
+    
+                    df['AI_Outreach'] = outreach_results
+                    st.session_state.df_results = df
+                    st.success("Analysis complete! View the outreach plans below.")
+    
+        except Exception as e:
+            st.error(f"An error occurred while processing the file. Please check your Excel sheet for correct column names and data types. Error: {e}")
+    
+    if 'df_results' in st.session_state:
+        st.markdown("---")
+        st.header("Generated Outreach Blueprints")
+        df_results = st.session_state.df_results
+        
+        output_buffer = io.BytesIO()
+        with pd.ExcelWriter(output_buffer, engine='openpyxl') as writer:
+            export_df = df_results.copy()
+            for i, row in export_df.iterrows():
+                if row['AI_Outreach'] and row['AI_Outreach'].get('outreach_options'):
+                    for j, option in enumerate(row['AI_Outreach']['outreach_options']):
+                        export_df.at[i, f'Option_{j+1}_Title'] = option.get('title')
+                        export_df.at[i, f'Option_{j+1}_SMS'] = option.get('sms')
+                        export_df.at[i, f'Option_{j+1}_Email'] = option.get('email')
             export_df = export_df.drop('AI_Outreach', axis=1)
             
-                            preferred_order = [
-                                'Borrower First Name', 'Borrower Last Name', 'City',
-                                'Current P&I Mtg Pymt', 'Remaining Balance',
-                                'Estimated Home Value', 'Estimated LTV', 'Max Cash-Out Amount',
-                                'HELOC Payment (interest-only)',
-                            ]
-                            scenario_cols = sorted([c for c in export_df.columns if 'New P&I' in c or 'Savings' in c])
-                            cols_in_order = [c for c in preferred_order if c in export_df.columns] + scenario_cols
-                            cols_in_order += [c for c in export_df.columns if c not in cols_in_order]
-                            export_df = export_df[cols_in_order]
+            preferred_order = [
+                'Borrower First Name', 'Borrower Last Name', 'City',
+                'Current P&I Mtg Pymt', 'Remaining Balance',
+                'Estimated Home Value', 'Estimated LTV', 'Max Cash-Out Amount',
+                'HELOC Payment (interest-only)',
+            ]
+            scenario_cols = sorted([c for c in export_df.columns if 'New P&I' in c or 'Savings' in c])
+            cols_in_order = [c for c in preferred_order if c in export_df.columns] + scenario_cols
+            cols_in_order += [c for c in export_df.columns if c not in cols_in_order]
+            export_df = export_df[cols_in_order]
             
-                            export_df.to_excel(writer, index=False, sheet_name='AI_Outreach_Plan')
+            export_df.to_excel(writer, index=False, sheet_name='AI_Outreach_Plan')
             worksheet = writer.book['AI_Outreach_Plan']
             worksheet.freeze_panes = 'A2'
             from openpyxl.styles import PatternFill
@@ -421,62 +420,62 @@ elif app_mode == "Refinance Intelligence Center":
                 cell.fill = header_fill
             for column_cells in worksheet.columns:
                 length = max(len(str(cell.value)) if cell.value is not None else 0 for cell in column_cells)
-            worksheet.column_dimensions[column_cells[0].column_letter].width = min(50, length + 2)
+                worksheet.column_dimensions[column_cells[0].column_letter].width = min(50, length + 2)
+            
+            # Summary sheet highlighting best savings option
+            savings_cols = [c for c in scenario_cols if c.startswith('Savings')]
+            summary_df = export_df[
+                ['Borrower First Name', 'Borrower Last Name', 'Estimated Home Value', 'Estimated LTV', 'Max Cash-Out Amount'] + savings_cols
+            ].copy()
+            summary_df['Best Savings'] = summary_df[savings_cols].max(axis=1)
+            summary_df['Best Option'] = summary_df[savings_cols].idxmax(axis=1).str.extract(r'\((.*)\)')
+            summary_df.to_excel(writer, index=False, sheet_name='Summary')
+            summary_ws = writer.book['Summary']
+            summary_ws.freeze_panes = 'A2'
+            for column_cells in summary_ws.columns:
+                length = max(len(str(cell.value)) if cell.value is not None else 0 for cell in column_cells)
+                summary_ws.column_dimensions[column_cells[0].column_letter].width = min(50, length + 2)
         
-        # Summary sheet highlighting best savings option
-        savings_cols = [c for c in scenario_cols if c.startswith('Savings')]
-        summary_df = export_df[
-            ['Borrower First Name', 'Borrower Last Name', 'Estimated Home Value', 'Estimated LTV', 'Max Cash-Out Amount'] + savings_cols
-        ].copy()
-        summary_df['Best Savings'] = summary_df[savings_cols].max(axis=1)
-        summary_df['Best Option'] = summary_df[savings_cols].idxmax(axis=1).str.extract(r'\((.*)\)')
-        summary_df.to_excel(writer, index=False, sheet_name='Summary')
-        summary_ws = writer.book['Summary']
-        summary_ws.freeze_panes = 'A2'
-        for column_cells in summary_ws.columns:
-            length = max(len(str(cell.value)) if cell.value is not None else 0 for cell in column_cells)
-            summary_ws.column_dimensions[column_cells[0].column_letter].width = min(50, length + 2)
+        st.download_button(
+            label="📥 Download Full Data Report (Excel)",
+            data=output_buffer.getvalue(),
+            file_name="AI_Outreach_Plan.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
         
+        for index, row in df_results.iterrows():
+            with st.expander(f"👤 **{row['Borrower First Name']} {row.get('Borrower Last Name', '')}** | Max Savings: **${row.get('Savings (30yr)', 0):.2f}/mo**"):
+                st.subheader("Financial Snapshot")
+                col1, col2, col3 = st.columns(3)
+                col1.metric("Current P&I", f"${clean_currency(row['Current P&I Mtg Pymt']):,.2f}")
+                col2.metric("Est. New P&I (30yr)", f"${row.get('New P&I (30yr)', 0):.2f}", delta=f"{-row.get('Savings (30yr)', 0):.2f}")
+                col3.metric("Max Cash-Out", f"${row['Max Cash-Out Amount']:,.2f}")
+                
+                st.subheader("AI-Generated Outreach Options")
+                if row['AI_Outreach'] and row['AI_Outreach'].get('outreach_options'):
+                    pdf_data = {
+                        "Borrower First Name": row['Borrower First Name'],
+                        "Borrower Last Name": row.get('Borrower Last Name', ''),
+                        "snapshot": {
+                            "Current P&I": f"${clean_currency(row['Current P&I Mtg Pymt']):,.2f}",
+                            "Est. New P&I (30yr)": f"${row.get('New P&I (30yr)', 0):.2f}",
+                            "Max Cash-Out": f"${row['Max Cash-Out Amount']:,.2f}"
+                        },
+                        "outreach": row['AI_Outreach']['outreach_options']
+                    }
                     st.download_button(
-                        label="📥 Download Full Data Report (Excel)",
-                        data=output_buffer.getvalue(),
-                        file_name="AI_Outreach_Plan.xlsx",
-                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                        label="📄 Download PDF Summary",
+                        data=create_pdf_report(pdf_data),
+                        file_name=f"{row['Borrower First Name']}_Report.pdf",
+                        mime="application/pdf",
+                        key=f"pdf_{index}"
                     )
-        
-                    for index, row in df_results.iterrows():
-                        with st.expander(f"👤 **{row['Borrower First Name']} {row.get('Borrower Last Name', '')}** | Max Savings: **${row.get('Savings (30yr)', 0):.2f}/mo**"):
-                            st.subheader("Financial Snapshot")
-                            col1, col2, col3 = st.columns(3)
-                            col1.metric("Current P&I", f"${clean_currency(row['Current P&I Mtg Pymt']):,.2f}")
-                            col2.metric("Est. New P&I (30yr)", f"${row.get('New P&I (30yr)', 0):.2f}", delta=f"{-row.get('Savings (30yr)', 0):.2f}")
-                            col3.metric("Max Cash-Out", f"${row['Max Cash-Out Amount']:,.2f}")
-        
-                            st.subheader("AI-Generated Outreach Options")
-                            if row['AI_Outreach'] and row['AI_Outreach'].get('outreach_options'):
-                                pdf_data = {
-                                    "Borrower First Name": row['Borrower First Name'],
-                                    "Borrower Last Name": row.get('Borrower Last Name', ''),
-                                    "snapshot": {
-                                        "Current P&I": f"${clean_currency(row['Current P&I Mtg Pymt']):,.2f}",
-                                        "Est. New P&I (30yr)": f"${row.get('New P&I (30yr)', 0):.2f}",
-                                        "Max Cash-Out": f"${row['Max Cash-Out Amount']:,.2f}"
-                                    },
-                                    "outreach": row['AI_Outreach']['outreach_options']
-                                }
-                                st.download_button(
-                                    label="📄 Download PDF Summary",
-                                    data=create_pdf_report(pdf_data),
-                                    file_name=f"{row['Borrower First Name']}_Report.pdf",
-                                    mime="application/pdf",
-                                    key=f"pdf_{index}"
-                                )
-                                for option in row['AI_Outreach']['outreach_options']:
-                                    st.markdown(f"#### {option.get('title', 'Outreach Option')}")
-                                    st.text_area("SMS", value=option.get('sms'), height=100, key=f"sms_{index}_{option.get('title')}", help="Copy this template for SMS outreach.")
-                                    st.text_area("Email", value=option.get('email'), height=200, key=f"email_{index}_{option.get('title')}", help="Copy this template for email outreach.")
-                            else:
-                                st.warning("Could not generate outreach content for this borrower.")
+                    for option in row['AI_Outreach']['outreach_options']:
+                        st.markdown(f"#### {option.get('title', 'Outreach Option')}")
+                        st.text_area("SMS", value=option.get('sms'), height=100, key=f"sms_{index}_{option.get('title')}", help="Copy this template for SMS outreach.")
+                        st.text_area("Email", value=option.get('email'), height=200, key=f"email_{index}_{option.get('title')}", help="Copy this template for email outreach.")
+                else:
+                    st.warning("Could not generate outreach content for this borrower.")
     
     # --- OTHER AGENTS (Placeholders) ---
 elif app_mode == "Guideline & Product Chatbot":
