@@ -247,18 +247,21 @@ elif app_mode == "Refinance Intelligence Center":
     st.title("Refinance Intelligence Center")
     st.markdown("### Upload a borrower data sheet to generate hyper-personalized outreach plans.")
 
-    with st.expander("📊 Required Column Mapping"):
-        mapping_df = pd.DataFrame({
-            "Required Column": list(COLUMN_ALIASES.keys()),
-            "Accepted Names": [", ".join(v) for v in COLUMN_ALIASES.values()],
-        })
-        st.dataframe(mapping_df, use_container_width=True)
+with st.expander("📊 Required Column Mapping"):
+    mapping_df = pd.DataFrame({
+        "Required Column": list(COLUMN_ALIASES.keys()),
+        "Accepted Names": [", ".join(v) for v in COLUMN_ALIASES.values()],
+    })
+    st.dataframe(mapping_df, use_container_width=True)
 
+appreciation_rate = st.number_input(
+    # your parameters here
+)
     appreciation_rate = st.number_input(
         "Assumed Annual Home Appreciation Rate (%)",
         min_value=0.0,
         max_value=10.0,
-        value=7.0,
+value=7.0,
         step=0.1,
         help="Used to estimate each borrower's current home value."
     )
@@ -295,9 +298,9 @@ elif app_mode == "Refinance Intelligence Center":
                         ),
                         axis=1,
                     )
-                    df['Estimated LTV'] = (
-                        (df['Remaining Balance'] / df['Estimated Home Value'])
-                    ).fillna(0).replace([float('inf'), -float('inf')], 0).round(4)
+df['Estimated LTV'] = (
+    (df['Remaining Balance'] / df['Estimated Home Value'])
+).fillna(0).replace([float('inf'), -float('inf')], 0).round(4)
                     df['Max Cash-Out Amount'] = (df['Estimated Home Value'] * 0.80) - df['Remaining Balance']
                     df['Max Cash-Out Amount'] = df['Max Cash-Out Amount'].apply(lambda x: max(0, round(x, 2)))
                     
@@ -320,8 +323,7 @@ elif app_mode == "Refinance Intelligence Center":
                     # Heloc interest-only payment estimate
                     heloc_rate = rates.get('heloc', 0) / 100
                     if heloc_rate > 0:
-                        df['HELOC Payment (interest-only)'] = df['Max Cash-Out Amount'] * (heloc_rate / 12)
-
+df['HELOC Payment (interest-only)'] = df['Max Cash-Out Amount'] * (heloc_rate / 12)
                     outreach_results = []
                     for i, row in df.iterrows():
                         progress_bar.progress((i + 1) / len(df), text=f"Generating AI outreach for {row['Borrower First Name']}...")
@@ -351,7 +353,7 @@ elif app_mode == "Refinance Intelligence Center":
                         4.  **"Same Payment" Cash-Out:** You can offer approx. ${cash_out_same_payment:.2f} in cash while keeping their payment nearly the same.
 
                         **Task:**
-                        Return a JSON object with a key named 'outreach_options'. That list should contain four distinct outreach options. Each option must have a 'title', a concise 'sms' template, and a professional 'email' template. Mention that we offer a previous-client **no-cost refi** option where all fees are covered by the lender for roughly +{no_cost_adj:.3f}% to the rate if applicable.
+Return a JSON object with a key named 'outreach_options'. That list should contain four distinct outreach options. Each option must have a 'title', a concise 'sms' template, and a professional 'email' template. Mention that we offer a previous-client **no-cost refi** option where all fees are covered by the lender for roughly +{no_cost_adj:.3f}% to the rate if applicable.
                         1.  **"Significant Savings Alert"**: Focus on the 30-year option's direct monthly savings.
                         2.  **"Aggressive Payoff Plan"**: Focus on the 15-year option, highlighting owning their home faster.
                         3.  **"Leverage Your Equity"**: Focus on the maximum cash-out option for home improvements or debt consolidation.
@@ -367,7 +369,7 @@ elif app_mode == "Refinance Intelligence Center":
                             )
                             data = json.loads(response.text)
                             if 'outreach_options' not in data:
-                                raise ValueError("AI response missing required 'outreach_options' key")
+raise ValueError("AI response missing required 'outreach_options' key")
                             outreach_results.append(data)
                         except Exception as e:
                             st.warning(
