@@ -202,7 +202,8 @@ def create_pdf_report(data):
             pdf.chapter_body(option.get('email', 'N/A'))
             pdf.ln(5)
 
-    return pdf.output(dest='S').encode('latin-1')
+    output = pdf.output(dest='S')
+    return bytes(output)
 
 # --- ADMIN RATE PANEL ---
 if app_mode == "Admin Rate Panel":
