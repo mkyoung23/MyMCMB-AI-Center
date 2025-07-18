@@ -36,4 +36,4 @@ Run `pip install -r requirements.txt` and `python -m py_compile app.py` to verif
 
 Navigate to the Refinance Intelligence Center tab, upload your Excel sheet, and click **Generate AI Outreach Plans** to produce downloadable reports and templated messages.
 
-The app automatically maps common column names to the required headers, so you can keep your spreadsheet as-is. Use the **Assumed Annual Home Appreciation Rate (%)** field to fine‑tune how current home values are calculated. Once the AI analysis finishes, you can download a polished Excel report or individual PDF summaries containing personalized outreach templates for each borrower.
+The app automatically maps common column names to the required headers, so you can keep your spreadsheet as-is. The **Assumed Annual Home Appreciation Rate (%)** input defaults to 7% and drives the new home value and LTV calculations. Once the AI analysis finishes, you can download a polished Excel workbook with a summary sheet and an outreach plan plus individual PDF summaries containing personalized outreach templates for each borrower.
