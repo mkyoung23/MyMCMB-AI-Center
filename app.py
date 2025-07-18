@@ -32,6 +32,7 @@ st.markdown("""
     .stButton>button {
         background-color: #2563eb; /* Blue 600 */
         color: white;
+ 
         border-radius: 0.5rem;
         border: none;
         padding: 0.75rem 1.5rem;
@@ -65,7 +66,9 @@ try:
     genai.configure(api_key=GEMINI_API_KEY)
     model = genai.GenerativeModel('gemini-1.5-flash')
 except Exception as e:
-    st.error(f"Could not configure AI models. Error: {e}")
+    st.er
+    
+    ror(f"Could not configure AI models. Error: {e}")
     st.stop()
 
 # --- SIDEBAR & NAVIGATION ---
@@ -98,6 +101,8 @@ def calculate_new_pi(principal, annual_rate, term_years):
         term_years = int(term_years)
         monthly_rate = annual_rate / 12
         num_payments = term_years * 12
+     
+        
         if monthly_rate <= 0 or num_payments <= 0: return 0.0
         payment = principal * (monthly_rate * (1 + monthly_rate)**num_payments) / ((1 + monthly_rate)**num_payments - 1)
         return round(payment, 2)
@@ -255,14 +260,13 @@ with st.expander("📊 Required Column Mapping"):
     st.dataframe(mapping_df, use_container_width=True)
 
 appreciation_rate = st.number_input(
-    # your parameters here
-)
+
     appreciation_rate = st.number_input(
         "Assumed Annual Home Appreciation Rate (%)",
         min_value=0.0,
         max_value=10.0,
 value=7.0,
-        step=0.1,
+     step=0.1,
         help="Used to estimate each borrower's current home value."
     )
 
