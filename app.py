@@ -125,6 +125,32 @@ def calculate_amortized_balance(principal, annual_rate, term_years, first_paymen
     except Exception:
         return principal
 
+# Mapping of common header variations to canonical names
+COLUMN_ALIASES = {
+    "Borrower First Name": ["borrower first name", "first name", "fname", "first"],
+    "Borrower Last Name": ["borrower last name", "last name", "lname", "last"],
+    "Current P&I Mtg Pymt": ["current p&i mtg pymt", "current payment", "pi payment", "current p&i"],
+    "Original Property Value": ["original property value", "purchase price", "original home value", "home value"],
+    "Total Original Loan Amount": ["total original loan amount", "original loan amount", "loan amount", "original loan balance"],
+    "Current Interest Rate": ["current interest rate", "interest rate", "rate"],
+    "Loan Term (years)": ["loan term (years)", "loan term", "term"],
+    "First Pymt Date": ["first pymt date", "first payment date", "first payment"],
+    "City": ["city", "property city", "borrower city"],
+}
+
+REQUIRED_COLUMNS = list(COLUMN_ALIASES.keys())
+
+def normalize_columns(df: pd.DataFrame) -> pd.DataFrame:
+    """Rename columns using COLUMN_ALIASES and return the DataFrame."""
+    rename_map = {}
+    lower_map = {c.lower(): c for c in df.columns}
+    for target, aliases in COLUMN_ALIASES.items():
+        for alias in aliases:
+            if alias.lower() in lower_map:
+                rename_map[lower_map[alias.lower()]] = target
+                break
+    return df.rename(columns=rename_map)
+
 # --- PDF EXPORT FUNCTION ---
 class PDF(FPDF):
     def header(self):
@@ -176,7 +202,8 @@ def create_pdf_report(data):
             pdf.chapter_body(option.get('email', 'N/A'))
             pdf.ln(5)
 
-    return pdf.output(dest='S').encode('latin-1')
+    output = pdf.output(dest='S')  # returns a bytearray
+    return bytes(output)  # Streamlit expects raw PDF bytes for download
 
 # --- ADMIN RATE PANEL ---
 if app_mode == "Admin Rate Panel":
@@ -220,11 +247,18 @@ elif app_mode == "Refinance Intelligence Center":
     st.title("Refinance Intelligence Center")
     st.markdown("### Upload a borrower data sheet to generate hyper-personalized outreach plans.")
 
+    with st.expander("📊 Required Column Mapping"):
+        mapping_df = pd.DataFrame({
+            "Required Column": list(COLUMN_ALIASES.keys()),
+            "Accepted Names": [", ".join(v) for v in COLUMN_ALIASES.values()],
+        })
+        st.dataframe(mapping_df, use_container_width=True)
+
     appreciation_rate = st.number_input(
         "Assumed Annual Home Appreciation Rate (%)",
         min_value=0.0,
         max_value=10.0,
-        value=4.6,
+        value=7.0,
         step=0.1,
         help="Used to estimate each borrower's current home value."
     )
@@ -234,7 +268,16 @@ elif app_mode == "Refinance Intelligence Center":
     if uploaded_file:
         try:
             df_original = pd.read_excel(uploaded_file, engine='openpyxl')
-            st.success(f"Successfully loaded {len(df_original)} borrowers from '{uploaded_file.name}'.")
+            df_original = normalize_columns(df_original)
+            missing = [c for c in REQUIRED_COLUMNS if c not in df_original.columns]
+            if missing:
+                st.error(
+                    f"Missing required columns after header normalization: {', '.join(missing)}."
+                )
+                st.stop()
+            st.success(
+                f"Successfully loaded {len(df_original)} borrowers from '{uploaded_file.name}'."
+            )
 
             if st.button("🚀 Generate AI Outreach Plans"):
                 with st.spinner("Initiating AI Analysis... This will take a few moments."):
@@ -252,7 +295,9 @@ elif app_mode == "Refinance Intelligence Center":
                         ),
                         axis=1,
                     )
-                    df['Estimated LTV'] = (df['Remaining Balance'] / df['Estimated Home Value']).fillna(0).replace([float('inf'), -float('inf')], 0)
+                    df['Estimated LTV'] = (
+                        (df['Remaining Balance'] / df['Estimated Home Value'])
+                    ).fillna(0).replace([float('inf'), -float('inf')], 0).round(4)
                     df['Max Cash-Out Amount'] = (df['Estimated Home Value'] * 0.80) - df['Remaining Balance']
                     df['Max Cash-Out Amount'] = df['Max Cash-Out Amount'].apply(lambda x: max(0, round(x, 2)))
                     
@@ -275,7 +320,7 @@ elif app_mode == "Refinance Intelligence Center":
                     # Heloc interest-only payment estimate
                     heloc_rate = rates.get('heloc', 0) / 100
                     if heloc_rate > 0:
-                        df['HELOC Payment (interest-only)'] = df['Remaining Balance'] * (heloc_rate / 12)
+                        df['HELOC Payment (interest-only)'] = df['Max Cash-Out Amount'] * (heloc_rate / 12)
                     
                     outreach_results = []
                     for i, row in df.iterrows():
@@ -283,6 +328,7 @@ elif app_mode == "Refinance Intelligence Center":
                         
                         current_payment = clean_currency(row['Current P&I Mtg Pymt'])
                         new_rate = rates.get('30yr_fixed', 0) / 100
+                        no_cost_adj = rates.get('no_cost_adj', 0)
                         try:
                             max_loan_for_same_payment = (current_payment * (((1 + new_rate/12)**360) - 1)) / ((new_rate/12) * (1 + new_rate/12)**360) if new_rate > 0 else 0
                             cash_out_same_payment = max(0, max_loan_for_same_payment - row['Remaining Balance'])
@@ -290,13 +336,14 @@ elif app_mode == "Refinance Intelligence Center":
                             cash_out_same_payment = 0
 
                         prompt = f"""
-                        You are an expert mortgage loan officer assistant for MyMCMB. Your task is to generate a set of personalized, human-sounding outreach messages for a past client named {row['Borrower First Name']}. The tone must be professional, helpful, and sound like it came from a real person.
+                        You are an expert mortgage loan officer assistant for MyMCMB. Remind {row['Borrower First Name']} that you personally helped close their previous loan. The tone must be professional yet friendly and brief.
 
                         **Borrower's Financial Snapshot:**
                         - Property City: {row.get('City', 'their city')}
                         - Current Monthly P&I: ${clean_currency(row['Current P&I Mtg Pymt']):.2f}
                         - Estimated Home Value: ${row['Estimated Home Value']:.2f}
-                        
+                        - Estimated LTV: {row['Estimated LTV']:.2f}%
+
                         **Calculated Refinance Scenarios:**
                         1.  **30-Year Fixed:** New Payment: ${row.get('New P&I (30yr)', 0):.2f}, Monthly Savings: ${row.get('Savings (30yr)', 0):.2f}
                         2.  **15-Year Fixed:** New Payment: ${row.get('New P&I (15yr)', 0):.2f}, Monthly Savings: ${row.get('Savings (15yr)', 0):.2f}
@@ -304,7 +351,7 @@ elif app_mode == "Refinance Intelligence Center":
                         4.  **"Same Payment" Cash-Out:** You can offer approx. ${cash_out_same_payment:.2f} in cash while keeping their payment nearly the same.
 
                         **Task:**
-                        Return a JSON object with a key named 'outreach_options'. That list should contain four distinct outreach options. Each option must have a 'title', a concise 'sms' template, and a professional 'email' template.
+                        Return a JSON object with a key named 'outreach_options'. That list should contain four distinct outreach options. Each option must have a 'title', a concise 'sms' template, and a professional 'email' template. Mention that we offer a previous-client **no-cost refi** option where all fees are covered by the lender for roughly +{no_cost_adj:.3f}% to the rate if applicable.
                         1.  **"Significant Savings Alert"**: Focus on the 30-year option's direct monthly savings.
                         2.  **"Aggressive Payoff Plan"**: Focus on the 15-year option, highlighting owning their home faster.
                         3.  **"Leverage Your Equity"**: Focus on the maximum cash-out option for home improvements or debt consolidation.
@@ -320,7 +367,7 @@ elif app_mode == "Refinance Intelligence Center":
                             )
                             data = json.loads(response.text)
                             if 'outreach_options' not in data:
-                                raise ValueError("Missing 'outreach_options' key")
+                                raise ValueError("AI response missing required 'outreach_options' key")
                             outreach_results.append(data)
                         except Exception as e:
                             st.warning(
@@ -349,7 +396,43 @@ elif app_mode == "Refinance Intelligence Center":
                             export_df.at[i, f'Option_{j+1}_Title'] = option.get('title')
                             export_df.at[i, f'Option_{j+1}_SMS'] = option.get('sms')
                             export_df.at[i, f'Option_{j+1}_Email'] = option.get('email')
-                export_df.drop('AI_Outreach', axis=1).to_excel(writer, index=False, sheet_name='AI_Outreach_Plan')
+                export_df = export_df.drop('AI_Outreach', axis=1)
+
+                preferred_order = [
+                    'Borrower First Name', 'Borrower Last Name', 'City',
+                    'Current P&I Mtg Pymt', 'Remaining Balance',
+                    'Estimated Home Value', 'Estimated LTV', 'Max Cash-Out Amount',
+                    'HELOC Payment (interest-only)',
+                ]
+                scenario_cols = sorted([c for c in export_df.columns if 'New P&I' in c or 'Savings' in c])
+                cols_in_order = [c for c in preferred_order if c in export_df.columns] + scenario_cols
+                cols_in_order += [c for c in export_df.columns if c not in cols_in_order]
+                export_df = export_df[cols_in_order]
+
+                export_df.to_excel(writer, index=False, sheet_name='AI_Outreach_Plan')
+                worksheet = writer.book['AI_Outreach_Plan']
+                worksheet.freeze_panes = 'A2'
+                from openpyxl.styles import PatternFill
+                header_fill = PatternFill(start_color='DEEAF6', end_color='DEEAF6', fill_type='solid')
+                for cell in worksheet[1]:
+                    cell.fill = header_fill
+                for column_cells in worksheet.columns:
+                    length = max(len(str(cell.value)) if cell.value is not None else 0 for cell in column_cells)
+                    worksheet.column_dimensions[column_cells[0].column_letter].width = min(50, length + 2)
+
+                # Summary sheet highlighting best savings option
+                savings_cols = [c for c in scenario_cols if c.startswith('Savings')]
+                summary_df = export_df[
+                    ['Borrower First Name', 'Borrower Last Name', 'Estimated Home Value', 'Estimated LTV', 'Max Cash-Out Amount'] + savings_cols
+                ].copy()
+                summary_df['Best Savings'] = summary_df[savings_cols].max(axis=1)
+                summary_df['Best Option'] = summary_df[savings_cols].idxmax(axis=1).str.extract(r'\((.*)\)')
+                summary_df.to_excel(writer, index=False, sheet_name='Summary')
+                summary_ws = writer.book['Summary']
+                summary_ws.freeze_panes = 'A2'
+                for column_cells in summary_ws.columns:
+                    length = max(len(str(cell.value)) if cell.value is not None else 0 for cell in column_cells)
+                    summary_ws.column_dimensions[column_cells[0].column_letter].width = min(50, length + 2)
 
             st.download_button(
                 label="📥 Download Full Data Report (Excel)",
