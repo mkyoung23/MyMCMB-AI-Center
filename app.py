@@ -253,7 +253,7 @@ elif app_mode == "Refinance Intelligence Center":
                     st.markdown("### Upload a borrower data sheet to generate hyper-personalized outreach plans.")
                 
                 with st.expander("📊 Required Column Mapping"):
-                    mapping_df = pd.DataFrame({
+                    mapping_df = pd .DataFrame({
                         "Required Column": list(COLUMN_ALIASES.keys()),
                         "Accepted Names": [", ".join(v) for v in COLUMN_ALIASES.values()],
                     })
@@ -266,8 +266,8 @@ elif app_mode == "Refinance Intelligence Center":
                         value=7.0,
                         step=0.1,
                         help="Used to estimate each borrower's current home value."
-                    )
-                   uploaded_file = st.file_uploader("Choose a borrower Excel file", type=['xlsx'])
+                    )   
+                         uploaded_file = st.file_uploader("Choose a borrower Excel file", type=['xlsx'])
                 
                     if uploaded_file:
                         try:
