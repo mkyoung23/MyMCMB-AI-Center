@@ -320,7 +320,7 @@ elif app_mode == "Refinance Intelligence Center":
                     # Heloc interest-only payment estimate
                     heloc_rate = rates.get('heloc', 0) / 100
                     if heloc_rate > 0:
-                        df['HELOC Payment (interest-only)'] = df['Remaining Balance'] * (heloc_rate / 12)
+                        df['HELOC Payment (interest-only)'] = df['Max Cash-Out Amount'] * (heloc_rate / 12)
 
                     outreach_results = []
                     for i, row in df.iterrows():
