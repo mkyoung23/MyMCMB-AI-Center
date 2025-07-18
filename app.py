@@ -396,7 +396,7 @@ elif app_mode == "Refinance Intelligence Center":
                             export_df.at[i, f'Option_{j+1}_Title'] = option.get('title')
                             export_df.at[i, f'Option_{j+1}_SMS'] = option.get('sms')
                             export_df.at[i, f'Option_{j+1}_Email'] = option.get('email')
-                export_df.drop('AI_Outreach', axis=1, inplace=True)
+                export_df = export_df.drop('AI_Outreach', axis=1)
 
                 preferred_order = [
                     'Borrower First Name', 'Borrower Last Name', 'City',
