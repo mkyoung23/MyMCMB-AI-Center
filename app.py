@@ -296,8 +296,8 @@ elif app_mode == "Refinance Intelligence Center":
                         axis=1,
                     )
                     df['Estimated LTV'] = (
-                        (df['Remaining Balance'] / df['Estimated Home Value']) * 100
-                    ).fillna(0).replace([float('inf'), -float('inf')], 0).round(2)
+                        (df['Remaining Balance'] / df['Estimated Home Value'])
+                    ).fillna(0).replace([float('inf'), -float('inf')], 0).round(4)
                     df['Max Cash-Out Amount'] = (df['Estimated Home Value'] * 0.80) - df['Remaining Balance']
                     df['Max Cash-Out Amount'] = df['Max Cash-Out Amount'].apply(lambda x: max(0, round(x, 2)))
                     
