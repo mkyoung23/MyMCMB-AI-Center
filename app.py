@@ -398,7 +398,7 @@ raise ValueError("AI response missing required 'outreach_options' key")
                             export_df.at[i, f'Option_{j+1}_Title'] = option.get('title')
                             export_df.at[i, f'Option_{j+1}_SMS'] = option.get('sms')
                             export_df.at[i, f'Option_{j+1}_Email'] = option.get('email')
-                export_df = export_df.drop('AI_Outreach', axis=1)
+export_df = export_df.drop('AI_Outreach', axis=1)
 
                 preferred_order = [
                     'Borrower First Name', 'Borrower Last Name', 'City',
@@ -412,29 +412,29 @@ raise ValueError("AI response missing required 'outreach_options' key")
                 export_df = export_df[cols_in_order]
 
                 export_df.to_excel(writer, index=False, sheet_name='AI_Outreach_Plan')
-                worksheet = writer.book['AI_Outreach_Plan']
-                worksheet.freeze_panes = 'A2'
-                from openpyxl.styles import PatternFill
-                header_fill = PatternFill(start_color='DEEAF6', end_color='DEEAF6', fill_type='solid')
-                for cell in worksheet[1]:
-                    cell.fill = header_fill
-                for column_cells in worksheet.columns:
-                    length = max(len(str(cell.value)) if cell.value is not None else 0 for cell in column_cells)
-                    worksheet.column_dimensions[column_cells[0].column_letter].width = min(50, length + 2)
+worksheet = writer.book['AI_Outreach_Plan']
+worksheet.freeze_panes = 'A2'
+from openpyxl.styles import PatternFill
+header_fill = PatternFill(start_color='DEEAF6', end_color='DEEAF6', fill_type='solid')
+for cell in worksheet[1]:
+    cell.fill = header_fill
+for column_cells in worksheet.columns:
+    length = max(len(str(cell.value)) if cell.value is not None else 0 for cell in column_cells)
+    worksheet.column_dimensions[column_cells[0].column_letter].width = min(50, length + 2)
 
-                # Summary sheet highlighting best savings option
-                savings_cols = [c for c in scenario_cols if c.startswith('Savings')]
-                summary_df = export_df[
-                    ['Borrower First Name', 'Borrower Last Name', 'Estimated Home Value', 'Estimated LTV', 'Max Cash-Out Amount'] + savings_cols
-                ].copy()
-                summary_df['Best Savings'] = summary_df[savings_cols].max(axis=1)
-                summary_df['Best Option'] = summary_df[savings_cols].idxmax(axis=1).str.extract(r'\((.*)\)')
-                summary_df.to_excel(writer, index=False, sheet_name='Summary')
-                summary_ws = writer.book['Summary']
-                summary_ws.freeze_panes = 'A2'
-                for column_cells in summary_ws.columns:
-                    length = max(len(str(cell.value)) if cell.value is not None else 0 for cell in column_cells)
-                    summary_ws.column_dimensions[column_cells[0].column_letter].width = min(50, length + 2)
+# Summary sheet highlighting best savings option
+savings_cols = [c for c in scenario_cols if c.startswith('Savings')]
+summary_df = export_df[
+    ['Borrower First Name', 'Borrower Last Name', 'Estimated Home Value', 'Estimated LTV', 'Max Cash-Out Amount'] + savings_cols
+].copy()
+summary_df['Best Savings'] = summary_df[savings_cols].max(axis=1)
+summary_df['Best Option'] = summary_df[savings_cols].idxmax(axis=1).str.extract(r'\((.*)\)')
+summary_df.to_excel(writer, index=False, sheet_name='Summary')
+summary_ws = writer.book['Summary']
+summary_ws.freeze_panes = 'A2'
+for column_cells in summary_ws.columns:
+    length = max(len(str(cell.value)) if cell.value is not None else 0 for cell in column_cells)
+    summary_ws.column_dimensions[column_cells[0].column_letter].width = min(50, length + 2)
 
             st.download_button(
                 label="📥 Download Full Data Report (Excel)",
