@@ -367,7 +367,7 @@ elif app_mode == "Refinance Intelligence Center":
                             )
                             data = json.loads(response.text)
                             if 'outreach_options' not in data:
-                                raise ValueError("Missing 'outreach_options' key")
+                                raise ValueError("AI response missing required 'outreach_options' key")
                             outreach_results.append(data)
                         except Exception as e:
                             st.warning(
