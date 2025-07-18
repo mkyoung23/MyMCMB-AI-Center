@@ -177,6 +177,97 @@ class PDF(FPDF):
         self.multi_cell(0, 5, body.encode('latin-1', 'replace').decode('latin-1'))
         self.ln()
 
+def create_text_export(df_results):
+    """Create a comprehensive text file export with all borrower data and outreach templates"""
+    text_content = []
+    text_content.append("=== MyMCMB AI Refinance Intelligence Report ===")
+    text_content.append(f"Generated on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    text_content.append(f"Total Borrowers: {len(df_results)}")
+    text_content.append("\n" + "="*80 + "\n")
+    
+    for index, row in df_results.iterrows():
+        text_content.append(f"BORROWER #{index + 1}: {row['Borrower First Name']} {row.get('Borrower Last Name', '')}")
+        text_content.append("-" * 50)
+        text_content.append(f"City: {row.get('City', 'N/A')}")
+        text_content.append(f"Current Monthly P&I: ${clean_currency(row['Current P&I Mtg Pymt']):,.2f}")
+        text_content.append(f"Remaining Balance: ${row.get('Remaining Balance', 0):,.2f}")
+        text_content.append(f"Estimated Home Value: ${row['Estimated Home Value']:,.2f}")
+        text_content.append(f"Estimated LTV: {row['Estimated LTV']:.2f}%")
+        text_content.append(f"Max Cash-Out Amount: ${row['Max Cash-Out Amount']:,.2f}")
+        
+        # Add refinance scenario details
+        text_content.append("\nREFINANCE SCENARIOS:")
+        scenario_cols = [c for c in df_results.columns if 'New P&I' in c or 'Savings' in c]
+        for col in scenario_cols:
+            if 'New P&I' in col:
+                term = col.split('(')[1].split(')')[0]
+                new_payment = row.get(col, 0)
+                savings = row.get(f'Savings ({term})', 0)
+                text_content.append(f"  {term}: New Payment: ${new_payment:.2f}, Monthly Savings: ${savings:.2f}")
+        
+        # Add AI-generated outreach options
+        text_content.append("\nAI-GENERATED OUTREACH OPTIONS:")
+        if row['AI_Outreach'] and row['AI_Outreach'].get('outreach_options'):
+            for i, option in enumerate(row['AI_Outreach']['outreach_options']):
+                text_content.append(f"\n  Option {i+1}: {option.get('title', 'N/A')}")
+                text_content.append(f"  SMS: {option.get('sms', 'N/A')}")
+                text_content.append(f"  Email: {option.get('email', 'N/A')}")
+        else:
+            text_content.append("  No outreach options generated.")
+        
+        text_content.append("\n" + "="*80 + "\n")
+    
+    return "\n".join(text_content)
+
+def create_enhanced_pdf_report(df_results):
+    """Create a comprehensive PDF report for all borrowers"""
+    pdf = PDF()
+    pdf.add_page()
+    
+    # Title page
+    pdf.chapter_title("MyMCMB AI Refinance Intelligence Report")
+    pdf.chapter_body(f"Generated on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    pdf.chapter_body(f"Total Borrowers: {len(df_results)}")
+    
+    for index, row in df_results.iterrows():
+        pdf.add_page()
+        pdf.chapter_title(f"Borrower: {row['Borrower First Name']} {row.get('Borrower Last Name', '')}")
+        
+        # Financial snapshot
+        snapshot_text = f"""
+FINANCIAL SNAPSHOT:
+• City: {row.get('City', 'N/A')}
+• Current Monthly P&I: ${clean_currency(row['Current P&I Mtg Pymt']):,.2f}
+• Remaining Balance: ${row.get('Remaining Balance', 0):,.2f}
+• Estimated Home Value: ${row['Estimated Home Value']:,.2f}
+• Estimated LTV: {row['Estimated LTV']:.2f}%
+• Max Cash-Out Amount: ${row['Max Cash-Out Amount']:,.2f}
+
+REFINANCE SCENARIOS:
+"""
+        # Add refinance scenarios
+        scenario_cols = [c for c in df_results.columns if 'New P&I' in c]
+        for col in scenario_cols:
+            if 'New P&I' in col:
+                term = col.split('(')[1].split(')')[0]
+                new_payment = row.get(col, 0)
+                savings = row.get(f'Savings ({term})', 0)
+                snapshot_text += f"• {term}: New Payment: ${new_payment:.2f}, Monthly Savings: ${savings:.2f}\n"
+        
+        pdf.chapter_body(snapshot_text)
+        
+        # Add outreach options
+        if row['AI_Outreach'] and row['AI_Outreach'].get('outreach_options'):
+            pdf.chapter_title("AI-Generated Outreach Options")
+            for i, option in enumerate(row['AI_Outreach']['outreach_options']):
+                pdf.chapter_body(f"Option {i+1}: {option.get('title', 'N/A')}")
+                pdf.chapter_body(f"SMS: {option.get('sms', 'N/A')}")
+                pdf.chapter_body(f"Email: {option.get('email', 'N/A')}")
+                pdf.chapter_body("")
+    
+    output = pdf.output(dest='S')
+    return bytes(output)
+
 def create_pdf_report(data):
     pdf = PDF()
     pdf.add_page()
@@ -338,7 +429,7 @@ elif app_mode == "Refinance Intelligence Center":
                             cash_out_same_payment = 0
     
                         prompt = f"""
-                        You are an expert mortgage loan officer assistant for MyMCMB. Remind {row['Borrower First Name']} that you personally helped close their previous loan. The tone must be professional yet friendly and brief.
+                        You are an expert mortgage loan officer assistant for MyMCMB. You previously helped {row['Borrower First Name']} close their loan and are now following up as their trusted loan officer. The tone must be professional yet warm and personal, acknowledging your past relationship.
     
                         **Borrower's Financial Snapshot:**
                         - Property City: {row.get('City', 'their city')}
@@ -353,12 +444,20 @@ elif app_mode == "Refinance Intelligence Center":
                         4.  **"Same Payment" Cash-Out:** You can offer approx. ${cash_out_same_payment:.2f} in cash while keeping their payment nearly the same.
     
                         **Task:**
-                        Return a JSON object with a key named 'outreach_options'. That list should contain four distinct outreach options. Each option must have a 'title', a concise 'sms' template, and a professional 'email' template. Mention that we offer a previous-client **no-cost refi** option where all fees are covered by the lender for roughly +{no_cost_adj:.3f}% to the rate if applicable.
-                        1.  **"Significant Savings Alert"**: Focus on the 30-year option's direct monthly savings.
-                        2.  **"Aggressive Payoff Plan"**: Focus on the 15-year option, highlighting owning their home faster.
-                        3.  **"Leverage Your Equity"**: Focus on the maximum cash-out option for home improvements or debt consolidation.
-                        4.  **"Cash with No Payment Shock"**: Focus on the 'same payment' cash-out option.
-                        Make the messages sound authentic. For one of the emails, mention a positive local event or trend in {row.get('City', 'their area')} to personalize it further.
+                        Return a JSON object with a key named 'outreach_options'. That list should contain four distinct outreach options. Each option must have a 'title', a concise 'sms' template, and a professional 'email' template. 
+                        
+                        **Important guidelines:**
+                        - Use relationship language like "I hope you and your family are doing well", "It's been a while since we closed your loan", "As your previous loan officer", "I wanted to personally reach out", "Following up with my preferred clients"
+                        - Mention that as a previous client, they qualify for a **no-cost refinance** option where all fees are covered by the lender for roughly +{no_cost_adj:.3f}% to the rate
+                        - Make messages sound authentic and conversational, not sales-y
+                        - Include genuine concern for their financial wellbeing
+                        
+                        1.  **"Significant Savings Alert"**: Focus on the 30-year option's direct monthly savings. Use language like "I wanted to personally update you on some exciting refinance opportunities"
+                        2.  **"Aggressive Payoff Plan"**: Focus on the 15-year option, highlighting owning their home faster. Use language like "I've been thinking about your financial goals"
+                        3.  **"Leverage Your Equity"**: Focus on the maximum cash-out option for home improvements or debt consolidation. Use language like "I noticed your home value has grown significantly"
+                        4.  **"Cash with No Payment Shock"**: Focus on the 'same payment' cash-out option. Use language like "I found a way to get you cash without changing your payment"
+                        
+                        For one of the emails, mention a positive local event or trend in {row.get('City', 'their area')} to personalize it further.
                         """
                         try:
                             response = model.generate_content(
@@ -414,15 +513,48 @@ elif app_mode == "Refinance Intelligence Center":
             export_df.to_excel(writer, index=False, sheet_name='AI_Outreach_Plan')
             worksheet = writer.book['AI_Outreach_Plan']
             worksheet.freeze_panes = 'A2'
-            from openpyxl.styles import PatternFill
-            header_fill = PatternFill(start_color='DEEAF6', end_color='DEEAF6', fill_type='solid')
+            
+            # Enhanced styling with color coding
+            from openpyxl.styles import PatternFill, Font, Alignment, Border, Side
+            
+            # Header styling
+            header_fill = PatternFill(start_color='4472C4', end_color='4472C4', fill_type='solid')
+            header_font = Font(color='FFFFFF', bold=True)
+            
+            # Data styling
+            savings_fill = PatternFill(start_color='D5E8D4', end_color='D5E8D4', fill_type='solid')  # Light green for savings
+            cashout_fill = PatternFill(start_color='FFF2CC', end_color='FFF2CC', fill_type='solid')  # Light yellow for cash-out
+            contact_fill = PatternFill(start_color='E1D5E7', end_color='E1D5E7', fill_type='solid')  # Light purple for contact info
+            
+            # Apply header styling
             for cell in worksheet[1]:
                 cell.fill = header_fill
+                cell.font = header_font
+                cell.alignment = Alignment(horizontal='center', vertical='center')
+            
+            # Apply data styling based on column type
+            for row in worksheet.iter_rows(min_row=2, max_row=worksheet.max_row):
+                for cell in row:
+                    col_name = worksheet.cell(row=1, column=cell.column).value
+                    
+                    if col_name and 'Savings' in col_name:
+                        cell.fill = savings_fill
+                        if isinstance(cell.value, (int, float)) and cell.value > 0:
+                            cell.font = Font(color='006100', bold=True)  # Dark green for positive savings
+                    elif col_name and ('Cash-Out' in col_name or 'HELOC' in col_name):
+                        cell.fill = cashout_fill
+                        if isinstance(cell.value, (int, float)) and cell.value > 0:
+                            cell.font = Font(color='9C6500', bold=True)  # Dark yellow for cash amounts
+                    elif col_name and ('Name' in col_name or 'City' in col_name):
+                        cell.fill = contact_fill
+                        cell.font = Font(color='5B2C6F', bold=True)  # Purple for contact info
+            
+            # Auto-adjust column widths
             for column_cells in worksheet.columns:
                 length = max(len(str(cell.value)) if cell.value is not None else 0 for cell in column_cells)
                 worksheet.column_dimensions[column_cells[0].column_letter].width = min(50, length + 2)
             
-            # Summary sheet highlighting best savings option
+            # Summary sheet with enhanced formatting
             savings_cols = [c for c in scenario_cols if c.startswith('Savings')]
             summary_df = export_df[
                 ['Borrower First Name', 'Borrower Last Name', 'Estimated Home Value', 'Estimated LTV', 'Max Cash-Out Amount'] + savings_cols
@@ -430,18 +562,59 @@ elif app_mode == "Refinance Intelligence Center":
             summary_df['Best Savings'] = summary_df[savings_cols].max(axis=1)
             summary_df['Best Option'] = summary_df[savings_cols].idxmax(axis=1).str.extract(r'\((.*)\)')
             summary_df.to_excel(writer, index=False, sheet_name='Summary')
+            
             summary_ws = writer.book['Summary']
             summary_ws.freeze_panes = 'A2'
+            
+            # Apply enhanced styling to summary sheet
+            for cell in summary_ws[1]:
+                cell.fill = header_fill
+                cell.font = header_font
+                cell.alignment = Alignment(horizontal='center', vertical='center')
+            
+            # Highlight best savings
+            for row in summary_ws.iter_rows(min_row=2, max_row=summary_ws.max_row):
+                best_savings_cell = row[-2]  # Best Savings column
+                if isinstance(best_savings_cell.value, (int, float)) and best_savings_cell.value > 100:
+                    best_savings_cell.fill = PatternFill(start_color='92D050', end_color='92D050', fill_type='solid')  # Bright green
+                    best_savings_cell.font = Font(color='FFFFFF', bold=True)
+            
             for column_cells in summary_ws.columns:
                 length = max(len(str(cell.value)) if cell.value is not None else 0 for cell in column_cells)
                 summary_ws.column_dimensions[column_cells[0].column_letter].width = min(50, length + 2)
         
-        st.download_button(
-            label="📥 Download Full Data Report (Excel)",
-            data=output_buffer.getvalue(),
-            file_name="AI_Outreach_Plan.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        )
+        # Enhanced Export Options
+        st.subheader("📥 Export Options")
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            st.download_button(
+                label="📊 Download Enhanced Excel Report",
+                data=output_buffer.getvalue(),
+                file_name="AI_Outreach_Plan.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                help="Complete Excel report with color coding and multiple sheets"
+            )
+        
+        with col2:
+            text_export = create_text_export(df_results)
+            st.download_button(
+                label="📄 Download Text Report",
+                data=text_export,
+                file_name="AI_Outreach_Plan.txt",
+                mime="text/plain",
+                help="Comprehensive text file with all borrower data and outreach templates"
+            )
+        
+        with col3:
+            pdf_export = create_enhanced_pdf_report(df_results)
+            st.download_button(
+                label="📋 Download Complete PDF Report",
+                data=pdf_export,
+                file_name="AI_Outreach_Complete_Report.pdf",
+                mime="application/pdf",
+                help="Professional PDF report with all borrowers and outreach plans"
+            )
         
         for index, row in df_results.iterrows():
             with st.expander(f"👤 **{row['Borrower First Name']} {row.get('Borrower Last Name', '')}** | Max Savings: **${row.get('Savings (30yr)', 0):.2f}/mo**"):
