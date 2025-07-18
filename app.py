@@ -202,8 +202,8 @@ def create_pdf_report(data):
             pdf.chapter_body(option.get('email', 'N/A'))
             pdf.ln(5)
 
-    output = pdf.output(dest='S')
-    return bytes(output)
+    output = pdf.output(dest='S')  # returns a bytearray
+    return bytes(output)  # Streamlit expects raw PDF bytes for download
 
 # --- ADMIN RATE PANEL ---
 if app_mode == "Admin Rate Panel":
