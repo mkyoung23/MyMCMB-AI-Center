@@ -260,17 +260,14 @@ with st.expander("📊 Required Column Mapping"):
     st.dataframe(mapping_df, use_container_width=True)
 
 appreciation_rate = st.number_input(
-
-    appreciation_rate = st.number_input(
-        "Assumed Annual Home Appreciation Rate (%)",
-        min_value=0.0,
-        max_value=10.0,
+"Assumed Annual Home Appreciation Rate (%)",
+min_value=0.0,
+max_value=10.0,
 value=7.0,
-     step=0.1,
-        help="Used to estimate each borrower's current home value."
-    )
-
-    uploaded_file = st.file_uploader("Choose a borrower Excel file", type=['xlsx'])
+step=0.1,
+help="Used to estimate each borrower's current home value."
+)
+   uploaded_file = st.file_uploader("Choose a borrower Excel file", type=['xlsx'])
 
     if uploaded_file:
         try:
