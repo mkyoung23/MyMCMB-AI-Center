@@ -629,9 +629,10 @@ elif app_mode == "Refinance Intelligence Center":
                         )
                         outreach_results.append({"outreach_options": []})
 
-                    df['AI_Outreach'] = outreach_results
-                    st.session_state.df_results = df
-                    st.success("Analysis complete! View the outreach plans below.")
+                # ASSIGN OUTREACH RESULTS AFTER THE LOOP (fixes length mismatch)
+                df['AI_Outreach'] = outreach_results
+                st.session_state.df_results = df
+                st.success("Analysis complete! View the outreach plans below.")
             except Exception as e:
                 st.error(f"An error occurred while processing the data. Error: {e}")
     
