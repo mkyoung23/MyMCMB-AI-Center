@@ -77,6 +77,37 @@ app_mode = st.sidebar.selectbox(
 )
 
 # --- ROBUST SHARED FUNCTIONS ---
+def clean_json_response(response_text):
+    """Clean and parse AI-generated JSON responses with robust error handling."""
+    try:
+        # First, try to parse as-is
+        return json.loads(response_text)
+    except json.JSONDecodeError:
+        try:
+            # Remove potential markdown formatting
+            cleaned = response_text.strip()
+            if cleaned.startswith('```json'):
+                cleaned = cleaned[7:]
+            if cleaned.endswith('```'):
+                cleaned = cleaned[:-3]
+            cleaned = cleaned.strip()
+            
+            # Try parsing again
+            return json.loads(cleaned)
+        except json.JSONDecodeError:
+            try:
+                # Find JSON-like content between curly braces
+                import re
+                json_match = re.search(r'\{.*\}', cleaned, re.DOTALL)
+                if json_match:
+                    return json.loads(json_match.group())
+                else:
+                    # Return fallback structure
+                    return {"outreach_options": []}
+            except (json.JSONDecodeError, AttributeError):
+                # Final fallback
+                return {"outreach_options": []}
+
 def clean_currency(value):
     if pd.isna(value): return 0.0
     try:
@@ -557,79 +588,103 @@ elif app_mode == "Refinance Intelligence Center":
                 if heloc_rate > 0:
                     df['HELOC Payment (interest-only)'] = df['Max Cash-Out Amount'] * (heloc_rate / 12)
                 
-                outreach_results = []
+                # Initialize outreach results with proper length to prevent mismatch
+                outreach_results = [{"outreach_options": []} for _ in range(len(df))]
+                
                 for i, row in df.iterrows():
-                    progress_bar.progress((i + 1) / len(df), text=f"Generating AI outreach for {row['Borrower First Name']}...")
-
-                    current_payment = clean_currency(row['Current P&I Mtg Pymt'])
-                    new_rate = rates.get('30yr_fixed', 0) / 100
-                    no_cost_adj = rates.get('no_cost_adj', 0)
                     try:
-                        max_loan_for_same_payment = (current_payment * (((1 + new_rate/12)**360) - 1)) / ((new_rate/12) * (1 + new_rate/12)**360) if new_rate > 0 else 0
-                        cash_out_same_payment = max(0, max_loan_for_same_payment - row['Remaining Balance'])
-                    except (ZeroDivisionError, ValueError):
-                        cash_out_same_payment = 0
-                    prompt = f"""
-                    You are an expert mortgage loan officer assistant for MyMCMB. You previously helped {row['Borrower First Name']} close their loan and are now following up as their trusted loan officer. The tone must be professional yet warm and personal, acknowledging your past relationship.
+                        progress_bar.progress((i + 1) / len(df), text=f"Generating AI outreach for {row['Borrower First Name']} {row.get('Borrower Last Name', '')}...")
 
-                    **Borrower's Financial Snapshot:**
-                    - Property City: {row.get('City', 'their city')}
-                    - Current Monthly P&I: ${clean_currency(row['Current P&I Mtg Pymt']):.2f}
-                    - Estimated Home Value: ${row['Estimated Home Value']:.2f}
-                    - Estimated LTV: {row['Estimated LTV']:.2f}%
+                        current_payment = clean_currency(row['Current P&I Mtg Pymt'])
+                        new_rate = rates.get('30yr_fixed', 0) / 100
+                        no_cost_adj = rates.get('no_cost_adj', 0)
+                        try:
+                            max_loan_for_same_payment = (current_payment * (((1 + new_rate/12)**360) - 1)) / ((new_rate/12) * (1 + new_rate/12)**360) if new_rate > 0 else 0
+                            cash_out_same_payment = max(0, max_loan_for_same_payment - row['Remaining Balance'])
+                        except (ZeroDivisionError, ValueError):
+                            cash_out_same_payment = 0
+                        
+                        prompt = f"""
+                        You are an expert mortgage loan officer assistant for MyMCMB. You previously helped {row['Borrower First Name']} close their loan and are now following up as their trusted loan officer. The tone must be professional yet warm and personal, acknowledging your past relationship.
 
-                    **Calculated Refinance Scenarios:**
-                    1.  **30-Year Fixed:** New Payment: ${row.get('New P&I (30yr)', 0):.2f}, Monthly Savings: ${row.get('Savings (30yr)', 0):.2f}
-                    2.  **15-Year Fixed:** New Payment: ${row.get('New P&I (15yr)', 0):.2f}, Monthly Savings: ${row.get('Savings (15yr)', 0):.2f}
-                    3.  **Max Cash-Out:** You can offer up to ${row['Max Cash-Out Amount']:.2f} in cash.
-                    4.  **"Same Payment" Cash-Out:** You can offer approx. ${cash_out_same_payment:.2f} in cash while keeping their payment nearly the same.
+                        **Borrower's Financial Snapshot:**
+                        - Property City: {row.get('City', 'their city')}
+                        - Current Monthly P&I: ${clean_currency(row['Current P&I Mtg Pymt']):.2f}
+                        - Estimated Home Value: ${row['Estimated Home Value']:.2f}
+                        - Estimated LTV: {row['Estimated LTV']:.2f}%
 
-                    **Task:**
-                    Return a JSON object with a key named 'outreach_options'. That list should contain four distinct outreach options. Each option must have a 'title', a concise 'sms' template, and a professional 'email' template. 
-                    
-                    **Critical Guidelines for Maximum Conversion:**
-                    - Use relationship language: "I hope you and your family are doing well", "It's been a while since we closed your loan", "As your previous loan officer", "I wanted to personally reach out", "Following up with my preferred clients"
-                    - Mention they qualify for a **no-cost refinance** option where all fees are covered by lender for roughly +{no_cost_adj:.3f}% to the rate
-                    - Create urgency without being pushy: "rates may change", "limited time opportunity", "current market conditions"
-                    - Include specific dollar amounts and savings to make it tangible
-                    - Make messages sound authentic and conversational, not sales-y
-                    - Include genuine concern for their financial wellbeing
-                    - End with a clear, specific call-to-action
-                    - Keep SMS under 160 characters for best delivery
-                    
-                    **Four Required Outreach Approaches:**
-                    1.  **"Significant Savings Alert"**: Focus on the 30-year option's direct monthly savings. Emphasize the immediate financial relief. Use language like "I wanted to personally update you on some exciting refinance opportunities that could put money back in your pocket every month"
-                    
-                    2.  **"Aggressive Payoff Plan"**: Focus on the 15-year option, highlighting owning their home faster and building wealth. Use language like "I've been thinking about your financial goals and found a way to help you own your home outright years earlier"
-                    
-                    3.  **"Leverage Your Equity"**: Focus on the maximum cash-out option for home improvements, debt consolidation, or investments. Use language like "I noticed your home value has grown significantly since we closed your loan - this creates some incredible opportunities for you"
-                    
-                    4.  **"Cash with No Payment Shock"**: Focus on the 'same payment' cash-out option. Use language like "I found a way to get you cash for your needs without changing your monthly payment - this is probably the most popular option with my clients"
-                    
-                    **Personalization Requirements:**
-                    - For one of the emails, mention a positive local trend in {row.get('City', 'their area')} (like real estate growth, local economy, new developments)
-                    - Include their first name in all messages
-                    - Reference the specific dollar amounts from their scenario
-                    - Use "we" language to build partnership ("let's review", "we can explore")
-                    """
-                    try:
-                        response = model.generate_content(
-                            prompt,
-                            generation_config=genai.types.GenerationConfig(
-                                response_mime_type="application/json"
-                            ),
-                        )
-                        data = json.loads(response.text)
-                        if 'outreach_options' not in data:
-                            raise ValueError("AI response missing required 'outreach_options' key")
-                        outreach_results.append(data)
-                    except Exception as e:
-                        st.warning(
-                            f"AI content generation failed for {row['Borrower First Name']}. Error: {e}"
-                        )
-                        outreach_results.append({"outreach_options": []})
+                        **Calculated Refinance Scenarios:**
+                        1.  **30-Year Fixed:** New Payment: ${row.get('New P&I (30yr)', 0):.2f}, Monthly Savings: ${row.get('Savings (30yr)', 0):.2f}
+                        2.  **15-Year Fixed:** New Payment: ${row.get('New P&I (15yr)', 0):.2f}, Monthly Savings: ${row.get('Savings (15yr)', 0):.2f}
+                        3.  **Max Cash-Out:** You can offer up to ${row['Max Cash-Out Amount']:.2f} in cash.
+                        4.  **"Same Payment" Cash-Out:** You can offer approx. ${cash_out_same_payment:.2f} in cash while keeping their payment nearly the same.
 
-                # ASSIGN OUTREACH RESULTS AFTER THE LOOP (fixes length mismatch)
+                        **Task:**
+                        Return a JSON object with a key named 'outreach_options'. That list should contain four distinct outreach options. Each option must have a 'title', a concise 'sms' template, and a professional 'email' template. 
+                        
+                        **Critical Guidelines for Maximum Conversion:**
+                        - Use relationship language: "I hope you and your family are doing well", "It's been a while since we closed your loan", "As your previous loan officer", "I wanted to personally reach out", "Following up with my preferred clients"
+                        - Mention they qualify for a **no-cost refinance** option where all fees are covered by lender for roughly +{no_cost_adj:.3f}% to the rate
+                        - Create urgency without being pushy: "rates may change", "limited time opportunity", "current market conditions"
+                        - Include specific dollar amounts and savings to make it tangible
+                        - Make messages sound authentic and conversational, not sales-y
+                        - Include genuine concern for their financial wellbeing
+                        - End with a clear, specific call-to-action
+                        - Keep SMS under 160 characters for best delivery
+                        
+                        **Four Required Outreach Approaches:**
+                        1.  **"Significant Savings Alert"**: Focus on the 30-year option's direct monthly savings. Emphasize the immediate financial relief. Use language like "I wanted to personally update you on some exciting refinance opportunities that could put money back in your pocket every month"
+                        
+                        2.  **"Aggressive Payoff Plan"**: Focus on the 15-year option, highlighting owning their home faster and building wealth. Use language like "I've been thinking about your financial goals and found a way to help you own your home outright years earlier"
+                        
+                        3.  **"Leverage Your Equity"**: Focus on the maximum cash-out option for home improvements, debt consolidation, or investments. Use language like "I noticed your home value has grown significantly since we closed your loan - this creates some incredible opportunities for you"
+                        
+                        4.  **"Cash with No Payment Shock"**: Focus on the 'same payment' cash-out option. Use language like "I found a way to get you cash for your needs without changing your monthly payment - this is probably the most popular option with my clients"
+                        
+                        **Personalization Requirements:**
+                        - For one of the emails, mention a positive local trend in {row.get('City', 'their area')} (like real estate growth, local economy, new developments)
+                        - Include their first name in all messages
+                        - Reference the specific dollar amounts from their scenario
+                        - Use "we" language to build partnership ("let's review", "we can explore")
+                        """
+                        
+                        try:
+                            response = model.generate_content(
+                                prompt,
+                                generation_config=genai.types.GenerationConfig(
+                                    response_mime_type="application/json"
+                                ),
+                            )
+                            
+                            # Use robust JSON parsing
+                            data = clean_json_response(response.text)
+                            
+                            # Validate the response structure
+                            if 'outreach_options' not in data or not isinstance(data['outreach_options'], list):
+                                raise ValueError("AI response missing required 'outreach_options' key or invalid structure")
+                            
+                            # Ensure we have at least some outreach options
+                            if len(data['outreach_options']) == 0:
+                                raise ValueError("AI response contains empty outreach_options")
+                            
+                            # Validate each outreach option has required fields
+                            for option in data['outreach_options']:
+                                if not isinstance(option, dict) or 'title' not in option or 'sms' not in option or 'email' not in option:
+                                    raise ValueError("Invalid outreach option structure")
+                            
+                            outreach_results[i] = data
+                            
+                        except Exception as api_error:
+                            st.warning(
+                                f"AI content generation failed for {row['Borrower First Name']} {row.get('Borrower Last Name', '')}. Error: {api_error}"
+                            )
+                            # Keep the default empty structure that was pre-initialized
+                            
+                    except Exception as row_error:
+                        st.error(f"Error processing borrower {row.get('Borrower First Name', 'Unknown')}: {row_error}")
+                        # Keep the default empty structure that was pre-initialized
+
+                # ASSIGN OUTREACH RESULTS AFTER THE LOOP - Length is guaranteed to match
                 df['AI_Outreach'] = outreach_results
                 st.session_state.df_results = df
                 st.success("Analysis complete! View the outreach plans below.")
