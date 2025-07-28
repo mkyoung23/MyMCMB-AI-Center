@@ -700,8 +700,7 @@ elif app_mode == "Refinance Intelligence Center":
                 st.session_state.df_results = df
                 st.success("Analysis complete! View the outreach plans below.")
             except Exception as e:
-                st.error(f"An
-                error occurred while processing the data. Error: {e}")
+                st.error(f"An error occurred while processing the data. Error: {e}")
     
     elif input_method == "✏️ Manual Entry" and not st.session_state.get('manual_borrowers'):
         st.info("👆 Please add borrowers using the form above to get started.")
@@ -736,8 +735,7 @@ elif app_mode == "Refinance Intelligence Center":
             scenario_cols = sorted([c for c in export_df.columns if 'New P&I' in c or 'Savings' in c])
             cols_in_order = [c for c in preferred_order if c in export_df.columns] + scenario_cols
             cols_in_order += [c for c in export_df.columns if c not in cols_in_order]
-            expor
-            t_df = export_df[cols_in_order]
+            export_df = export_df[cols_in_order]
             
             export_df.to_excel(writer, index=False, sheet_name='AI_Outreach_Plan')
             worksheet = writer.book['AI_Outreach_Plan']
@@ -802,8 +800,7 @@ elif app_mode == "Refinance Intelligence Center":
             for cell in summary_ws[1]:
                 cell.fill = header_fill
                 cell.font = header_font
-                cell.
-                alignment = Alignment(horizontal='center', vertical='center')
+                cell.alignment = Alignment(horizontal='center', vertical='center')
 
             
             # Highlight best savings
