@@ -885,11 +885,557 @@ elif app_mode == "Refinance Intelligence Center":
                 else:
                     st.warning("Could not generate outreach content for this borrower.")
     
-    # --- OTHER AGENTS (Placeholders) ---
+    # --- GUIDELINE & PRODUCT CHATBOT ---
 elif app_mode == "Guideline & Product Chatbot":
     st.title("Guideline & Product Chatbot")
-    st.info("This AI Agent is under construction. The next phase will involve building a RAG pipeline to query your guideline documents.")
+    st.markdown("### Ask questions about mortgage guidelines, products, and underwriting requirements.")
+    
+    # Initialize chat history
+    if 'chat_history' not in st.session_state:
+        st.session_state.chat_history = []
+    
+    # Knowledge base (can be expanded with document upload in the future)
+    MORTGAGE_KNOWLEDGE = """
+    MORTGAGE UNDERWRITING GUIDELINES AND PRODUCTS:
+    
+    CONVENTIONAL LOANS:
+    - Minimum credit score: 620 for most programs
+    - Down payment: As low as 3% for first-time homebuyers
+    - Maximum DTI: 45% typically, 50% with compensating factors
+    - PMI required for loans over 80% LTV
+    - Loan limits vary by county (2024: $766,550 in most areas, up to $1,149,825 in high-cost areas)
+    
+    FHA LOANS:
+    - Minimum credit score: 580 for 3.5% down, 500 for 10% down
+    - Down payment: As low as 3.5%
+    - Maximum DTI: 57% typically
+    - MIP required for most loans
+    - Loan limits: Generally lower than conventional
+    
+    VA LOANS:
+    - No down payment required
+    - No PMI required
+    - Minimum credit score varies by lender (typically 620+)
+    - Certificate of Eligibility required
+    - Funding fee applies (can be financed)
+    
+    USDA LOANS:
+    - No down payment required
+    - Income limits apply
+    - Property must be in eligible rural/suburban area
+    - Guarantee fee required
+    
+    JUMBO LOANS:
+    - Loan amounts above conforming limits
+    - Typically require higher credit scores (700+)
+    - Larger down payments often required
+    - More stringent debt-to-income requirements
+    
+    REFINANCE OPTIONS:
+    - Rate & Term Refinance: Lower rate or change terms
+    - Cash-Out Refinance: Access home equity (typically max 80% LTV)
+    - Streamline Refinance: Simplified process for existing customers
+    - HARP/FHFA Programs: For underwater mortgages
+    
+    COMMON UNDERWRITING FACTORS:
+    - Employment history (2+ years stable)
+    - Asset verification (2+ months statements)
+    - Property appraisal and title work
+    - Debt-to-income ratios
+    - Credit history and score
+    - Reserves (2+ months PITI for investment properties)
+    
+    SPECIAL PROGRAMS:
+    - First-time homebuyer programs
+    - Down payment assistance programs
+    - Energy-efficient mortgage programs
+    - Renovation loans (203k, CHOICEReno)
+    - Physician loans (high DTI tolerance)
+    - Bank statement loans for self-employed
+    """
+    
+    def get_chatbot_response(question, chat_history):
+        """Generate response using the mortgage knowledge base"""
+        try:
+            # Create context from recent chat history
+            context = ""
+            if chat_history:
+                recent_history = chat_history[-6:]  # Last 3 exchanges
+                for entry in recent_history:
+                    context += f"Previous Q: {entry['question']}\nPrevious A: {entry['answer']}\n\n"
+            
+            prompt = f"""
+            You are a knowledgeable mortgage loan officer assistant for MyMCMB. You help loan officers and clients understand mortgage guidelines, products, and underwriting requirements.
+            
+            KNOWLEDGE BASE:
+            {MORTGAGE_KNOWLEDGE}
+            
+            RECENT CONVERSATION CONTEXT:
+            {context}
+            
+            USER QUESTION: {question}
+            
+            Please provide a helpful, accurate response based on the knowledge base. If the question is outside your knowledge area, suggest they contact their loan officer directly. Be professional, clear, and specific with rates, percentages, and requirements when applicable.
+            
+            If someone asks about current rates, remind them that rates change daily and they should contact their loan officer for current pricing.
+            """
+            
+            response = model.generate_content(prompt)
+            return response.text
+            
+        except Exception as e:
+            return f"I apologize, but I'm having trouble generating a response right now. Please contact your loan officer directly for assistance. Error: {str(e)}"
+    
+    # Chat interface
+    st.markdown("#### 💬 Chat with the Mortgage Expert")
+    
+    # Display chat history
+    chat_container = st.container()
+    with chat_container:
+        for i, entry in enumerate(st.session_state.chat_history):
+            # User message
+            st.markdown(f"""
+            <div style="background-color: #2563eb; color: white; padding: 10px; border-radius: 10px; margin: 5px 0; max-width: 80%; margin-left: auto;">
+                <strong>You:</strong> {entry['question']}
+            </div>
+            """, unsafe_allow_html=True)
+            
+            # Bot response
+            st.markdown(f"""
+            <div style="background-color: #1e293b; color: #e2e8f0; padding: 10px; border-radius: 10px; margin: 5px 0; max-width: 80%;">
+                <strong>🏠 Mortgage Expert:</strong> {entry['answer']}
+            </div>
+            """, unsafe_allow_html=True)
+    
+    # Input form
+    with st.form("chat_form", clear_on_submit=True):
+        user_question = st.text_area(
+            "Ask your mortgage question:",
+            placeholder="e.g., What are the current FHA loan requirements? or Can I qualify for a conventional loan with a 650 credit score?",
+            height=100
+        )
+        
+        col1, col2, col3 = st.columns([1, 1, 1])
+        with col2:
+            submit_chat = st.form_submit_button("💬 Ask Question", use_container_width=True)
+        
+        if submit_chat and user_question.strip():
+            with st.spinner("Getting answer from mortgage expert..."):
+                response = get_chatbot_response(user_question, st.session_state.chat_history)
+                
+                # Add to chat history
+                st.session_state.chat_history.append({
+                    'question': user_question,
+                    'answer': response,
+                    'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                })
+                
+                st.rerun()
+    
+    # Quick question buttons
+    st.markdown("#### 🔥 Popular Questions")
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        if st.button("💳 Credit Score Requirements", use_container_width=True):
+            question = "What are the minimum credit score requirements for different loan types?"
+            response = get_chatbot_response(question, st.session_state.chat_history)
+            st.session_state.chat_history.append({
+                'question': question,
+                'answer': response,
+                'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            })
+            st.rerun()
+        
+        if st.button("🏠 Down Payment Options", use_container_width=True):
+            question = "What are the minimum down payment requirements for first-time homebuyers?"
+            response = get_chatbot_response(question, st.session_state.chat_history)
+            st.session_state.chat_history.append({
+                'question': question,
+                'answer': response,
+                'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            })
+            st.rerun()
+    
+    with col2:
+        if st.button("📊 Debt-to-Income Limits", use_container_width=True):
+            question = "What are the maximum debt-to-income ratios for different loan programs?"
+            response = get_chatbot_response(question, st.session_state.chat_history)
+            st.session_state.chat_history.append({
+                'question': question,
+                'answer': response,
+                'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            })
+            st.rerun()
+        
+        if st.button("🔄 Refinance Options", use_container_width=True):
+            question = "What refinance options are available and what are the requirements?"
+            response = get_chatbot_response(question, st.session_state.chat_history)
+            st.session_state.chat_history.append({
+                'question': question,
+                'answer': response,
+                'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            })
+            st.rerun()
+    
+    # Clear chat option
+    if st.session_state.chat_history:
+        st.markdown("---")
+        if st.button("🗑️ Clear Chat History"):
+            st.session_state.chat_history = []
+            st.rerun()
+        
+        # Export chat option
+        if len(st.session_state.chat_history) > 0:
+            chat_export = "\n".join([
+                f"Q: {entry['question']}\nA: {entry['answer']}\nTime: {entry['timestamp']}\n{'-'*50}"
+                for entry in st.session_state.chat_history
+            ])
+            
+            st.download_button(
+                label="📄 Export Chat History",
+                data=chat_export,
+                file_name=f"mortgage_chat_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt",
+                mime="text/plain"
+            )
 
 elif app_mode == "Social Media Automation":
     st.title("Social Media Automation")
-    st.info("This AI Agent is under construction. The next phase will involve integrating with the InVideo API to generate videos from AI-created scripts.")
+    st.markdown("### Generate engaging social media content for mortgage professionals")
+    
+    # Content type selection
+    content_type = st.selectbox(
+        "Select Content Type:",
+        [
+            "📊 Market Update Post",
+            "💡 Educational Content", 
+            "🏠 Home Buying Tips",
+            "📈 Rate Alert",
+            "🎯 First-Time Buyer Guide",
+            "💰 Refinance Opportunity",
+            "📝 Client Testimonial Template",
+            "🎉 Closing Celebration"
+        ]
+    )
+    
+    # Platform selection
+    platforms = st.multiselect(
+        "Select Social Media Platforms:",
+        ["📘 Facebook", "📸 Instagram", "🐦 Twitter/X", "💼 LinkedIn", "🎵 TikTok"],
+        default=["📘 Facebook", "📸 Instagram"]
+    )
+    
+    if not platforms:
+        st.warning("Please select at least one social media platform.")
+        st.stop()
+    
+    # Additional inputs based on content type
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        if "Market Update" in content_type or "Rate Alert" in content_type:
+            current_rate = st.number_input("Current 30-Year Rate (%)", min_value=0.0, max_value=15.0, value=7.0, step=0.125, format="%.3f")
+            rate_change = st.selectbox("Rate Movement", ["📈 Increased", "📉 Decreased", "➡️ Remained Stable"])
+        
+        if "Educational" in content_type or "Tips" in content_type:
+            focus_area = st.selectbox(
+                "Focus Area:",
+                ["Credit Score Improvement", "Down Payment Saving", "Debt-to-Income", "Pre-approval Process", "Closing Costs"]
+            )
+    
+    with col2:
+        tone = st.selectbox(
+            "Content Tone:",
+            ["Professional", "Friendly & Casual", "Educational", "Urgent/Action-Oriented", "Celebratory"]
+        )
+        
+        include_cta = st.checkbox("Include Call-to-Action", value=True)
+        include_hashtags = st.checkbox("Include Hashtags", value=True)
+    
+    # Personal/Company info
+    with st.expander("📝 Personalization (Optional)"):
+        loan_officer_name = st.text_input("Loan Officer Name", placeholder="John Smith")
+        company_name = st.text_input("Company Name", placeholder="MyMCMB Mortgage")
+        phone_number = st.text_input("Phone Number", placeholder="(555) 123-4567")
+        website = st.text_input("Website", placeholder="www.mymcmb.com")
+    
+    def generate_social_content(content_type, platforms, **kwargs):
+        """Generate social media content using AI"""
+        try:
+            # Build platform-specific requirements
+            platform_specs = {
+                "📘 Facebook": "Facebook posts should be engaging, can be longer (up to 500 characters recommended), and work well with questions and community engagement.",
+                "📸 Instagram": "Instagram posts should be visual-focused, shorter text (125-150 characters optimal), include relevant hashtags, and work well with emojis.",
+                "🐦 Twitter/X": "Twitter/X posts must be under 280 characters, concise, punchy, and include relevant hashtags.",
+                "💼 LinkedIn": "LinkedIn posts should be professional, educational, can be longer, and focus on industry insights and expertise.",
+                "🎵 TikTok": "TikTok content should be trendy, engaging, use popular format ideas, and include relevant hashtags for discovery."
+            }
+            
+            platform_requirements = "\n".join([platform_specs[p] for p in platforms if p in platform_specs])
+            
+            # Build personalization
+            personal_info = ""
+            if kwargs.get('loan_officer_name'):
+                personal_info += f"Loan Officer: {kwargs['loan_officer_name']}\n"
+            if kwargs.get('company_name'):
+                personal_info += f"Company: {kwargs['company_name']}\n"
+            if kwargs.get('phone_number'):
+                personal_info += f"Phone: {kwargs['phone_number']}\n"
+            if kwargs.get('website'):
+                personal_info += f"Website: {kwargs['website']}\n"
+            
+            prompt = f"""
+            You are a social media content creator specializing in mortgage and real estate content for loan officers.
+            
+            CONTENT REQUEST:
+            - Content Type: {content_type}
+            - Platforms: {', '.join(platforms)}
+            - Tone: {kwargs.get('tone', 'Professional')}
+            - Include Call-to-Action: {kwargs.get('include_cta', True)}
+            - Include Hashtags: {kwargs.get('include_hashtags', True)}
+            
+            PLATFORM REQUIREMENTS:
+            {platform_requirements}
+            
+            PERSONALIZATION INFO:
+            {personal_info if personal_info else "Generic content (no personalization provided)"}
+            
+            ADDITIONAL CONTEXT:
+            """
+            
+            # Add context based on content type
+            if "Market Update" in content_type or "Rate Alert" in content_type:
+                prompt += f"Current 30-year rate: {kwargs.get('current_rate', 7.0)}%, Rate movement: {kwargs.get('rate_change', 'Stable')}\n"
+            
+            if "Educational" in content_type or "Tips" in content_type:
+                prompt += f"Focus area: {kwargs.get('focus_area', 'General mortgage advice')}\n"
+            
+            prompt += f"""
+            
+            Please create engaging social media content that:
+            1. Is appropriate for each selected platform
+            2. Follows the specified tone and style
+            3. Includes relevant mortgage/real estate information
+            4. Incorporates personalization when provided
+            5. Uses platform-appropriate formatting and length
+            6. Includes effective hashtags if requested
+            7. Has a clear call-to-action if requested
+            
+            Return a JSON object with the following structure:
+            {{
+                "posts": [
+                    {{
+                        "platform": "platform name",
+                        "content": "the actual post content",
+                        "hashtags": ["list", "of", "hashtags"],
+                        "character_count": number,
+                        "tips": "any additional tips for this platform"
+                    }}
+                ]
+            }}
+            """
+            
+            response = model.generate_content(
+                prompt,
+                generation_config=genai.types.GenerationConfig(
+                    response_mime_type="application/json"
+                )
+            )
+            
+            return clean_json_response(response.text)
+            
+        except Exception as e:
+            return {
+                "posts": [],
+                "error": f"Failed to generate content: {str(e)}"
+            }
+    
+    # Generate content button
+    if st.button("🚀 Generate Social Media Content", type="primary", use_container_width=True):
+        with st.spinner("🤖 Creating engaging social media content..."):
+            content_data = generate_social_content(
+                content_type=content_type,
+                platforms=platforms,
+                tone=tone,
+                include_cta=include_cta,
+                include_hashtags=include_hashtags,
+                current_rate=locals().get('current_rate'),
+                rate_change=locals().get('rate_change'),
+                focus_area=locals().get('focus_area'),
+                loan_officer_name=loan_officer_name,
+                company_name=company_name,
+                phone_number=phone_number,
+                website=website
+            )
+            
+            if content_data.get('error'):
+                st.error(content_data['error'])
+            elif content_data.get('posts'):
+                st.session_state.generated_content = content_data
+                st.success("🎉 Content generated successfully!")
+            else:
+                st.error("No content was generated. Please try again.")
+    
+    # Display generated content
+    if 'generated_content' in st.session_state and st.session_state.generated_content.get('posts'):
+        st.markdown("---")
+        st.header("📱 Generated Social Media Content")
+        
+        posts = st.session_state.generated_content['posts']
+        
+        # Create downloadable content
+        all_content = []
+        
+        for i, post in enumerate(posts):
+            platform = post.get('platform', f'Platform {i+1}')
+            content = post.get('content', '')
+            hashtags = post.get('hashtags', [])
+            char_count = post.get('character_count', len(content))
+            tips = post.get('tips', '')
+            
+            # Display each post
+            with st.expander(f"{platform} Post ({char_count} characters)", expanded=True):
+                # Content box
+                st.text_area(
+                    "Post Content:",
+                    value=content,
+                    height=150,
+                    key=f"content_{i}",
+                    help="Copy this content to your social media platform"
+                )
+                
+                # Hashtags
+                if hashtags:
+                    hashtag_text = " ".join([f"#{tag}" if not tag.startswith('#') else tag for tag in hashtags])
+                    st.text_area(
+                        "Hashtags:",
+                        value=hashtag_text,
+                        height=60,
+                        key=f"hashtags_{i}"
+                    )
+                
+                # Platform tips
+                if tips:
+                    st.info(f"💡 **Platform Tip**: {tips}")
+                
+                # Character count indicator
+                if char_count:
+                    if platform == "🐦 Twitter/X" and char_count > 280:
+                        st.warning(f"⚠️ Content is {char_count} characters (Twitter limit: 280)")
+                    elif platform == "📸 Instagram" and char_count > 150:
+                        st.info(f"ℹ️ Content is {char_count} characters (Instagram optimal: 125-150)")
+                    else:
+                        st.success(f"✅ {char_count} characters - Perfect length!")
+            
+            # Add to downloadable content
+            all_content.append(f"""
+PLATFORM: {platform}
+CHARACTER COUNT: {char_count}
+
+CONTENT:
+{content}
+
+HASHTAGS:
+{hashtag_text if hashtags else 'No hashtags'}
+
+TIPS:
+{tips if tips else 'No specific tips'}
+
+{'-'*80}
+""")
+        
+        # Download options
+        st.markdown("### 📥 Export Options")
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            # Text export
+            export_text = f"""
+SOCIAL MEDIA CONTENT EXPORT
+Generated on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+Content Type: {content_type}
+Platforms: {', '.join(platforms)}
+Tone: {tone}
+
+{''.join(all_content)}
+            """.strip()
+            
+            st.download_button(
+                label="📄 Download as Text File",
+                data=export_text,
+                file_name=f"social_content_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt",
+                mime="text/plain"
+            )
+        
+        with col2:
+            # CSV export for content calendar
+            csv_data = []
+            for post in posts:
+                csv_data.append({
+                    'Platform': post.get('platform', ''),
+                    'Content': post.get('content', ''),
+                    'Hashtags': ' '.join(post.get('hashtags', [])),
+                    'Character_Count': post.get('character_count', 0),
+                    'Content_Type': content_type,
+                    'Generated_Date': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                })
+            
+            csv_df = pd.DataFrame(csv_data)
+            csv_buffer = io.StringIO()
+            csv_df.to_csv(csv_buffer, index=False)
+            
+            st.download_button(
+                label="📊 Download as CSV",
+                data=csv_buffer.getvalue(),
+                file_name=f"social_calendar_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                mime="text/csv"
+            )
+        
+        # Quick regenerate button
+        if st.button("🔄 Generate New Content", type="secondary"):
+            if 'generated_content' in st.session_state:
+                del st.session_state.generated_content
+            st.rerun()
+    
+    # Content inspiration section
+    st.markdown("---")
+    with st.expander("💡 Content Ideas & Best Practices"):
+        st.markdown("""
+        **🎯 High-Engagement Content Ideas:**
+        
+        **Market Updates:**
+        - Weekly rate summaries with trend analysis
+        - Local market insights and statistics
+        - Economic factors affecting rates
+        
+        **Educational Content:**
+        - "Mortgage Myth Monday" series
+        - Step-by-step homebuying guides
+        - Credit score improvement tips
+        - Down payment strategies
+        
+        **Client Success Stories:**
+        - Before/after scenarios (anonymized)
+        - First-time buyer celebrations
+        - Refinance success stories
+        
+        **Interactive Content:**
+        - "Rate or Wait?" polls
+        - Q&A sessions
+        - Live market updates
+        - Calculator tools and demos
+        
+        **📅 Posting Best Practices:**
+        - **Facebook**: 1-2 posts per day, focus on community engagement
+        - **Instagram**: 1 post + 2-3 stories daily, use high-quality visuals
+        - **LinkedIn**: 3-5 posts per week, professional insights
+        - **Twitter/X**: 2-5 tweets daily, join conversations with hashtags
+        - **TikTok**: 3-5 videos per week, follow trends and use trending sounds
+        
+        **⏰ Optimal Posting Times:**
+        - **Facebook**: 9 AM - 10 AM, 3 PM - 4 PM
+        - **Instagram**: 6 AM - 9 AM, 7 PM - 9 PM  
+        - **LinkedIn**: 8 AM - 10 AM, 12 PM - 2 PM
+        - **Twitter/X**: 8 AM - 10 AM, 7 PM - 9 PM
+        - **TikTok**: 6 AM - 10 AM, 7 PM - 9 PM
+        """)
