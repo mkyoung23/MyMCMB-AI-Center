@@ -7,13 +7,29 @@ from datetime import datetime
 import re
 import io
 from fpdf import FPDF
+import os
 
 # --- CONFIG & API KEY SETUP ---
 st.set_page_config(page_title="MyMCMB AI Center", layout="wide")
 
+
 # Load API keys from .streamlit/secrets.toml
 GOOGLE_API_KEY = st.secrets["GOOGLE_API_KEY"] if "GOOGLE_API_KEY" in st.secrets else None
-APP_PASSWORD = st.secrets["APP_PASSWORD"] if "APP_PASSWORD" in st.secrets else "admin"
+APP_PASSWORD = "RealRefi#23"
+
+# --- GLOBAL PASSWORD PROTECTION ---
+if "authenticated" not in st.session_state:
+    st.session_state.authenticated = False
+if not st.session_state.authenticated:
+    st.title("🔒 MyMCMB AI Center Login")
+    password_input = st.text_input("Enter Password to Access App", type="password")
+    if st.button("Login"):
+        if password_input == APP_PASSWORD:
+            st.session_state.authenticated = True
+            st.experimental_rerun()
+        else:
+            st.error("Incorrect password. Please try again.")
+    st.stop()
 
 if GOOGLE_API_KEY:
     genai.configure(api_key=GOOGLE_API_KEY)
@@ -112,26 +128,27 @@ def refinance_intelligence_center():
         results = []
         for idx, row in df.iterrows():
             principal = clean_currency(row.get("Remaining Balance", 0))
-            rate = float(row.get("Current Interest Rate", 0))
-            term = int(row.get("Loan Term (years)", 30))
+            input_rate = float(row.get("Current Interest Rate", 0))
+            input_term = int(row.get("Loan Term (years)", 30))
             payment = clean_currency(row.get("Current P&I Mtg Pymt", 0))
             home_value = clean_currency(row.get("Estimated Home Value", 0))
             payments_made = int(row.get("Payments Made", 0)) if "Payments Made" in row else 0
-            if payments_made > 0:
-                amort_df, _ = calculate_amortization(principal, rate, term)
-                if payments_made < len(amort_df):
-                    new_loan_amount = amort_df.iloc[payments_made]["Balance"]
-                else:
-                    new_loan_amount = 0.0
+            # For now, use input rate/term for refi scenario (can be replaced with admin rates)
+            calc_rate = input_rate
+            calc_term = input_term
+            # Calculate amortization for original loan
+            orig_amort_df, _ = calculate_amortization(principal, input_rate, input_term)
+            # Calculate new loan amount after payments made
+            if payments_made > 0 and payments_made < len(orig_amort_df):
+                new_loan_amount = orig_amort_df.iloc[payments_made]["Balance"]
             else:
                 new_loan_amount = principal
             new_home_value = home_value
             new_ltv = new_loan_amount / new_home_value * 100 if new_home_value else 0
-            new_rate = rate
-            new_term = term
-            new_amort_df, _ = calculate_amortization(new_loan_amount, new_rate, new_term)
-            new_payment = new_amort_df.iloc[0]["Payment"] if len(new_amort_df) > 0 else 0.0
-            n_and_i = new_payment
+            # Calculate payment for refi scenario
+            refi_amort_df, _ = calculate_amortization(new_loan_amount, calc_rate, calc_term)
+            refi_payment = refi_amort_df.iloc[0]["Payment"] if len(refi_amort_df) > 0 else 0.0
+            n_and_i = refi_payment
             # --- AI-powered outreach campaigns ---
             campaigns = []
             if GOOGLE_API_KEY:
@@ -140,13 +157,12 @@ def refinance_intelligence_center():
                     f"Client name: {row.get('Borrower First Name','')} {row.get('Borrower Last Name','')}. "
                     f"City: {row.get('City','')}. "
                     f"New loan amount: ${new_loan_amount:.2f}. "
-                    f"Estimated payment: ${n_and_i:.2f}/mo at {new_rate:.2f}% for {new_term} years. "
+                    f"Estimated payment: ${n_and_i:.2f}/mo at {calc_rate:.2f}% for {calc_term} years. "
                     f"Create 3 unique, personal, and friendly outreach messages for text or email that will get the most response."
                 )
                 try:
                     response = genai.generate_text(model="gemini-pro", prompt=prompt, temperature=0.7, max_output_tokens=500)
                     if hasattr(response, 'result') and response.result:
-                        # Split into 3 messages (assuming numbered or line breaks)
                         raw_msgs = response.result.split('\n')
                         for msg in raw_msgs:
                             msg = msg.strip()
@@ -173,9 +189,11 @@ def refinance_intelligence_center():
                 "Current P&I Mtg Pymt": payment,
                 "Remaining Balance": principal,
                 "Payments Made": payments_made,
+                "Rate Used": calc_rate,
+                "Term Used": calc_term,
                 "New Loan Amount": new_loan_amount,
-                "Current Interest Rate": rate,
-                "Loan Term (years)": term,
+                "Current Interest Rate": input_rate,
+                "Loan Term (years)": input_term,
                 "New LTV": new_ltv,
                 "N&I (New Payment)": n_and_i,
                 "Campaign 1": campaigns[0],
@@ -214,9 +232,11 @@ def refinance_intelligence_center():
                 text_lines.append(f"Borrower: {row['Borrower First Name']} {row['Borrower Last Name']}")
                 text_lines.append(f"City: {row['City']}")
                 text_lines.append(f"Current Payment: ${row['Current P&I Mtg Pymt']:.2f}")
-                text_lines.append(f"Calculated Payment: ${row['Calculated Payment']:.2f}")
-                text_lines.append(f"Estimated LTV: {row['Estimated LTV']:.2f}%")
-                text_lines.append(f"Outreach: {row['Outreach']}")
+                text_lines.append(f"New Payment (N&I): ${row['N&I (New Payment)']:.2f}")
+                text_lines.append(f"New LTV: {row['New LTV']:.2f}%")
+                text_lines.append(f"Campaign 1: {row['Campaign 1']}")
+                text_lines.append(f"Campaign 2: {row['Campaign 2']}")
+                text_lines.append(f"Campaign 3: {row['Campaign 3']}")
                 text_lines.append("-"*40)
             st.download_button(
                 label="📄 Download Text",
@@ -256,18 +276,14 @@ def refinance_intelligence_center():
 # --- ADMIN RATE PANEL ---
 def admin_rate_panel():
     st.title("Admin Rate Panel")
-    password = st.text_input("Enter Admin Password", type="password")
-    if password == APP_PASSWORD:
-        st.success("Access Granted")
-        st.markdown("#### Set Current Mortgage Rates")
-        if "rates" not in st.session_state:
-            # Initial template rates logic:
-            # 30yr and 25yr: 6.5%
-            # 20yr: 6.25%
-            # 15yr: 5.75%
-            # 10yr: 5.75%
-            # 5yr ARM: 6.25%
-            # jeloc (interest-only HELOC): 8.5%
+    st.markdown("#### Set Current Mortgage Rates (Saved for All Users)")
+    rates_file = "rates.json"
+    # Load rates from file if exists
+    if "rates" not in st.session_state:
+        if os.path.exists(rates_file):
+            with open(rates_file, "r") as f:
+                st.session_state.rates = json.load(f)
+        else:
             st.session_state.rates = {
                 "30yr_fixed": 6.5,
                 "25yr_fixed": 6.5,
@@ -278,35 +294,35 @@ def admin_rate_panel():
                 "jeloc": 8.5,
                 "no_cost_adj": 0.25
             }
-        with st.form("rate_form"):
-            col1, col2 = st.columns(2)
-            with col1:
-                rate_30 = st.number_input("30-Year Fixed Rate (%)", min_value=0.0, max_value=15.0, value=st.session_state.rates["30yr_fixed"], step=0.01)
-                rate_25 = st.number_input("25-Year Fixed Rate (%)", min_value=0.0, max_value=15.0, value=st.session_state.rates["25yr_fixed"], step=0.01)
-                rate_20 = st.number_input("20-Year Fixed Rate (%)", min_value=0.0, max_value=15.0, value=st.session_state.rates["20yr_fixed"], step=0.01)
-            with col2:
-                rate_15 = st.number_input("15-Year Fixed Rate (%)", min_value=0.0, max_value=15.0, value=st.session_state.rates["15yr_fixed"], step=0.01)
-                rate_10 = st.number_input("10-Year Fixed Rate (%)", min_value=0.0, max_value=15.0, value=st.session_state.rates["10yr_fixed"], step=0.01)
-                rate_arm = st.number_input("5-Year ARM Rate (%)", min_value=0.0, max_value=15.0, value=st.session_state.rates["5yr_arm"], step=0.01)
-                rate_jeloc = st.number_input("Interest-Only HELOC (JELOC) Rate (%)", min_value=0.0, max_value=15.0, value=st.session_state.rates["jeloc"], step=0.01)
-                no_cost_adj = st.number_input("No-Cost/Cash-Out Rate Adj (%)", min_value=0.0, max_value=2.0, value=st.session_state.rates["no_cost_adj"], step=0.01)
-            submitted = st.form_submit_button("Save Rates")
-            if submitted:
-                st.session_state.rates = {
-                    "30yr_fixed": rate_30,
-                    "25yr_fixed": rate_25,
-                    "20yr_fixed": rate_20,
-                    "15yr_fixed": rate_15,
-                    "10yr_fixed": rate_10,
-                    "5yr_arm": rate_arm,
-                    "jeloc": rate_jeloc,
-                    "no_cost_adj": no_cost_adj
-                }
-                st.success("Rates updated!")
-        st.write("### Current Rates:")
-        st.json(st.session_state.rates)
-    elif password:
-        st.error("Incorrect Password")
+    with st.form("rate_form"):
+        col1, col2 = st.columns(2)
+        with col1:
+            rate_30 = st.number_input("30-Year Fixed Rate (%)", min_value=0.0, max_value=15.0, value=st.session_state.rates["30yr_fixed"], step=0.01)
+            rate_25 = st.number_input("25-Year Fixed Rate (%)", min_value=0.0, max_value=15.0, value=st.session_state.rates["25yr_fixed"], step=0.01)
+            rate_20 = st.number_input("20-Year Fixed Rate (%)", min_value=0.0, max_value=15.0, value=st.session_state.rates["20yr_fixed"], step=0.01)
+        with col2:
+            rate_15 = st.number_input("15-Year Fixed Rate (%)", min_value=0.0, max_value=15.0, value=st.session_state.rates["15yr_fixed"], step=0.01)
+            rate_10 = st.number_input("10-Year Fixed Rate (%)", min_value=0.0, max_value=15.0, value=st.session_state.rates["10yr_fixed"], step=0.01)
+            rate_arm = st.number_input("5-Year ARM Rate (%)", min_value=0.0, max_value=15.0, value=st.session_state.rates["5yr_arm"], step=0.01)
+            rate_jeloc = st.number_input("Interest-Only HELOC (JELOC) Rate (%)", min_value=0.0, max_value=15.0, value=st.session_state.rates["jeloc"], step=0.01)
+            no_cost_adj = st.number_input("No-Cost/Cash-Out Rate Adj (%)", min_value=0.0, max_value=2.0, value=st.session_state.rates["no_cost_adj"], step=0.01)
+        submitted = st.form_submit_button("Save Rates")
+        if submitted:
+            st.session_state.rates = {
+                "30yr_fixed": rate_30,
+                "25yr_fixed": rate_25,
+                "20yr_fixed": rate_20,
+                "15yr_fixed": rate_15,
+                "10yr_fixed": rate_10,
+                "5yr_arm": rate_arm,
+                "jeloc": rate_jeloc,
+                "no_cost_adj": no_cost_adj
+            }
+            with open(rates_file, "w") as f:
+                json.dump(st.session_state.rates, f)
+            st.success("Rates updated and saved for all users!")
+    st.write("### Current Rates:")
+    st.json(st.session_state.rates)
 
 
 # --- GUIDELINE & PRODUCT CHATBOT ---
