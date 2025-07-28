@@ -567,6 +567,7 @@ elif app_mode == "Refinance Intelligence Center":
                 ).fillna(0).replace([float('inf'), -float('inf')], 0).round(4)
                 df['Max Cash-Out Amount'] = (df['Estimated Home Value'] * 0.80) - df['Remaining Balance']
                 df['Max Cash-Out Amount'] = df['Max Cash-Out Amount'].apply(lambda x: max(0, round(x, 2)))
+
                 
                 rate_terms = [
                     ('30yr', '30yr_fixed', 30),
@@ -584,13 +585,16 @@ elif app_mode == "Refinance Intelligence Center":
                         df[f'New P&I ({term})'] = df.apply(lambda row: calculate_new_pi(row['Remaining Balance'], rate, years), axis=1)
                         df[f'Savings ({term})'] = df.apply(lambda row: clean_currency(row['Current P&I Mtg Pymt']) - row[f'New P&I ({term})'], axis=1)
                 # Heloc interest-only payment estimate
+               
                 heloc_rate = rates.get('heloc', 0) / 100
                 if heloc_rate > 0:
+                    
                     df['HELOC Payment (interest-only)'] = df['Max Cash-Out Amount'] * (heloc_rate / 12)
                 
                 # Initialize outreach results with proper length to prevent mismatch
                 outreach_results = [{"outreach_options": []} for _ in range(len(df))]
                 
+               
                 for i, row in df.iterrows():
                     try:
                         progress_bar.progress((i + 1) / len(df), text=f"Generating AI outreach for {row['Borrower First Name']} {row.get('Borrower Last Name', '')}...")
@@ -648,15 +652,20 @@ elif app_mode == "Refinance Intelligence Center":
                         - Use "we" language to build partnership ("let's review", "we can explore")
                         """
                         
+                 
                         try:
                             response = model.generate_content(
+                    
+                 
                                 prompt,
                                 generation_config=genai.types.GenerationConfig(
+                                    
                                     response_mime_type="application/json"
                                 ),
                             )
                             
                             # Use robust JSON parsing
+
                             data = clean_json_response(response.text)
                             
                             # Validate the response structure
@@ -681,15 +690,18 @@ elif app_mode == "Refinance Intelligence Center":
                             # Keep the default empty structure that was pre-initialized
                             
                     except Exception as row_error:
-                        st.error(f"Error processing borrower {row.get('Borrower First Name', 'Unknown')}: {row_error}")
+                        st.error(
+                            f"Error processing borrower {row.get('Borrower First Name', 'Unknown')}: {row_error}")
                         # Keep the default empty structure that was pre-initialized
 
+                
                 # ASSIGN OUTREACH RESULTS AFTER THE LOOP - Length is guaranteed to match
                 df['AI_Outreach'] = outreach_results
                 st.session_state.df_results = df
                 st.success("Analysis complete! View the outreach plans below.")
             except Exception as e:
-                st.error(f"An error occurred while processing the data. Error: {e}")
+                st.error(f"An
+                error occurred while processing the data. Error: {e}")
     
     elif input_method == "✏️ Manual Entry" and not st.session_state.get('manual_borrowers'):
         st.info("👆 Please add borrowers using the form above to get started.")
@@ -708,20 +720,24 @@ elif app_mode == "Refinance Intelligence Center":
                 if row['AI_Outreach'] and row['AI_Outreach'].get('outreach_options'):
                     for j, option in enumerate(row['AI_Outreach']['outreach_options']):
                         export_df.at[i, f'Option_{j+1}_Title'] = option.get('title')
+                  
                         export_df.at[i, f'Option_{j+1}_SMS'] = option.get('sms')
                         export_df.at[i, f'Option_{j+1}_Email'] = option.get('email')
             export_df = export_df.drop('AI_Outreach', axis=1)
             
             preferred_order = [
                 'Borrower First Name', 'Borrower Last Name', 'City',
+                
                 'Current P&I Mtg Pymt', 'Remaining Balance',
                 'Estimated Home Value', 'Estimated LTV', 'Max Cash-Out Amount',
                 'HELOC Payment (interest-only)',
+
             ]
             scenario_cols = sorted([c for c in export_df.columns if 'New P&I' in c or 'Savings' in c])
             cols_in_order = [c for c in preferred_order if c in export_df.columns] + scenario_cols
             cols_in_order += [c for c in export_df.columns if c not in cols_in_order]
-            export_df = export_df[cols_in_order]
+            expor
+            t_df = export_df[cols_in_order]
             
             export_df.to_excel(writer, index=False, sheet_name='AI_Outreach_Plan')
             worksheet = writer.book['AI_Outreach_Plan']
@@ -750,6 +766,7 @@ elif app_mode == "Refinance Intelligence Center":
                 for cell in row:
                     col_name = worksheet.cell(row=1, column=cell.column).value
                     
+             
                     if col_name and 'Savings' in col_name:
                         cell.fill = savings_fill
                         if isinstance(cell.value, (int, float)) and cell.value > 0:
@@ -771,7 +788,9 @@ elif app_mode == "Refinance Intelligence Center":
             savings_cols = [c for c in scenario_cols if c.startswith('Savings')]
             summary_df = export_df[
                 ['Borrower First Name', 'Borrower Last Name', 'Estimated Home Value', 'Estimated LTV', 'Max Cash-Out Amount'] + savings_cols
+
             ].copy()
+
             summary_df['Best Savings'] = summary_df[savings_cols].max(axis=1)
             summary_df['Best Option'] = summary_df[savings_cols].idxmax(axis=1).str.extract(r'\((.*)\)')
             summary_df.to_excel(writer, index=False, sheet_name='Summary')
@@ -783,7 +802,9 @@ elif app_mode == "Refinance Intelligence Center":
             for cell in summary_ws[1]:
                 cell.fill = header_fill
                 cell.font = header_font
-                cell.alignment = Alignment(horizontal='center', vertical='center')
+                cell.
+                alignment = Alignment(horizontal='center', vertical='center')
+
             
             # Highlight best savings
             for row in summary_ws.iter_rows(min_row=2, max_row=summary_ws.max_row):
@@ -818,6 +839,7 @@ elif app_mode == "Refinance Intelligence Center":
                 mime="text/plain",
                 help="Comprehensive text file with all borrower data and outreach templates"
             )
+
         
         with col3:
             pdf_export = create_enhanced_pdf_report(df_results)
