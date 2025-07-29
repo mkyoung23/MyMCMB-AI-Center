@@ -257,9 +257,10 @@ def refinance_intelligence_center():
                     self.cell(0, 8, f"Borrower: {row['Borrower First Name']} {row['Borrower Last Name']}", 0, 1)
                     self.cell(0, 8, f"City: {row['City']}", 0, 1)
                     self.cell(0, 8, f"Current Payment: ${row['Current P&I Mtg Pymt']:.2f}", 0, 1)
-                    self.cell(0, 8, f"Calculated Payment: ${row['Calculated Payment']:.2f}", 0, 1)
-                    self.cell(0, 8, f"Estimated LTV: {row['Estimated LTV']:.2f}%", 0, 1)
-                    self.multi_cell(0, 8, f"Outreach: {row['Outreach']}")
+                    self.cell(0, 8, f"Calculated Payment: ${row['N&I (New Payment)']:.2f}", 0, 1)
+                    self.cell(0, 8, f"Estimated LTV: {row['New LTV']:.2f}%", 0, 1)
+                    outreach = f"Campaign 1: {row['Campaign 1']}\nCampaign 2: {row['Campaign 2']}\nCampaign 3: {row['Campaign 3']}"
+                    self.multi_cell(0, 8, f"Outreach: {outreach}")
                     self.cell(0, 8, "-"*40, 0, 1)
             pdf = SimplePDF()
             pdf.add_page()
