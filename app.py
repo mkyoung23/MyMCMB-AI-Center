@@ -92,6 +92,20 @@ def refinance_intelligence_center():
                 df = pd.read_csv(uploaded_file)
             else:
                 df = pd.read_excel(uploaded_file)
+            # Standardize columns for typical file
+            df.columns = [c.strip() for c in df.columns]
+            df = df.rename(columns={
+                "Total Original Loan Amount": "Remaining Balance",
+                "Original Property  Value": "Estimated Home Value",
+                "Current Interest Rate": "Current Interest Rate",
+                "Loan Term (Years)": "Loan Term (years)",
+                "Current P&I Mtg Pymt": "Current P&I Mtg Pymt",
+                "Borrower First Name": "Borrower First Name",
+                "Borrower Last Name": "Borrower Last Name",
+                "City": "City",
+                "Borr Cell": "Borr Cell",
+                "Borr Email": "Borr Email"
+            })
     else:
         st.markdown("#### Manual Entry")
         if "manual_borrowers" not in st.session_state:
@@ -128,68 +142,68 @@ def refinance_intelligence_center():
         # Calculate scenarios for each borrower
         results = []
         for idx, row in df.iterrows():
-            principal = clean_currency(row.get("Remaining Balance", 0))
-            input_rate = float(row.get("Current Interest Rate", 0))
-            input_term = int(row.get("Loan Term (years)", 30))
+            principal = clean_currency(row.get("Remaining Balance", row.get("Total Original Loan Amount", 0)))
+            input_rate = float(clean_currency(row.get("Current Interest Rate", 0)))
+            input_term = int(clean_currency(row.get("Loan Term (years)", row.get("Loan Term (Years)", 30))))
             payment = clean_currency(row.get("Current P&I Mtg Pymt", 0))
-            home_value = clean_currency(row.get("Estimated Home Value", 0))
-            payments_made = int(row.get("Payments Made", 0)) if "Payments Made" in row else 0
-            # For now, use input rate/term for refi scenario (can be replaced with admin rates)
-            calc_rate = input_rate
-            calc_term = input_term
+            home_value = clean_currency(row.get("Estimated Home Value", row.get("Original Property  Value", 0)))
+            cell = row.get("Borr Cell", "")
+            email = row.get("Borr Email", "")
+            first_name = row.get("Borrower First Name", "")
+            last_name = row.get("Borrower Last Name", "")
+            city = row.get("City", "")
+            payments_made = 0
             # Calculate amortization for original loan
             orig_amort_df, _ = calculate_amortization(principal, input_rate, input_term)
             # Calculate new loan amount after payments made
-            if payments_made > 0 and payments_made < len(orig_amort_df):
-                new_loan_amount = orig_amort_df.iloc[payments_made]["Balance"]
-            else:
-                new_loan_amount = principal
+            new_loan_amount = principal
             new_home_value = home_value
             new_ltv = new_loan_amount / new_home_value * 100 if new_home_value else 0
-            # Calculate payment for refi scenario
+            # Calculate payment for refi scenario (using admin rates if desired)
+            calc_rate = input_rate
+            calc_term = input_term
             refi_amort_df, _ = calculate_amortization(new_loan_amount, calc_rate, calc_term)
             refi_payment = refi_amort_df.iloc[0]["Payment"] if len(refi_amort_df) > 0 else 0.0
             n_and_i = refi_payment
+            payment_diff = payment - n_and_i
             # --- AI-powered outreach campaigns ---
-            campaigns = []
+            ai_prompt = (
+                f"You are a friendly loan officer reaching out to a previous client who you helped refinance in the past. "
+                f"Client name: {first_name} {last_name}. City: {city}. "
+                f"Current payment: ${payment:.2f}/mo at {input_rate:.2f}% for {input_term} years. "
+                f"New refi scenario: ${n_and_i:.2f}/mo at {calc_rate:.2f}% for {calc_term} years. "
+                f"Home value: ${home_value:.2f}. Loan amount: ${new_loan_amount:.2f}. LTV: {new_ltv:.2f}%. "
+                f"Compare current and new payment, explain options, and reference your past work together. "
+                f"Write a personal, friendly text and a separate email campaign, each tailored to this borrower, explaining why now is a good time to refi, and what options they have."
+            )
+            campaigns = ["", ""]
             if GOOGLE_API_KEY:
-                prompt = (
-                    f"You are a friendly loan officer reaching out to a previous client. "
-                    f"Client name: {row.get('Borrower First Name','')} {row.get('Borrower Last Name','')}. "
-                    f"City: {row.get('City','')}. "
-                    f"New loan amount: ${new_loan_amount:.2f}. "
-                    f"Estimated payment: ${n_and_i:.2f}/mo at {calc_rate:.2f}% for {calc_term} years. "
-                    f"Create 3 unique, personal, and friendly outreach messages for text or email that will get the most response."
-                )
                 try:
-                    response = genai.generate_text(model="gemini-pro", prompt=prompt, temperature=0.7, max_output_tokens=500)
+                    response = genai.generate_text(model="gemini-pro", prompt=ai_prompt, temperature=0.7, max_output_tokens=500)
                     if hasattr(response, 'result') and response.result:
-                        raw_msgs = response.result.split('\n')
-                        for msg in raw_msgs:
-                            msg = msg.strip()
-                            if msg:
-                                campaigns.append(msg)
-                        if len(campaigns) < 3:
-                            campaigns += ["[AI message not returned]"] * (3 - len(campaigns))
+                        # Expecting two outputs: text and email
+                        split_msgs = response.result.split("---")
+                        if len(split_msgs) >= 2:
+                            campaigns[0] = split_msgs[0].strip()
+                            campaigns[1] = split_msgs[1].strip()
+                        else:
+                            campaigns = [response.result.strip(), response.result.strip()]
                     else:
-                        campaigns = ["[AI message not returned]"] * 3
+                        campaigns = ["[AI message not returned]", "[AI message not returned]"]
                 except Exception as e:
-                    campaigns = [f"[AI error: {e}]"] * 3
+                    campaigns = [f"[AI error: {e}]", f"[AI error: {e}]"]
             else:
                 campaigns = [
-                    f"Hi {row.get('Borrower First Name','')}, it’s your loan officer at MyMCMB. Just checking in to see how you’re enjoying your home! If you have any questions or want to explore new options, I’m here to help.",
-                    f"Hey {row.get('Borrower First Name','')}, rates have changed and there may be new opportunities for you! Let’s chat about how you could save or access cash for your next project. Text or call me anytime!",
-                    f"Hi {row.get('Borrower First Name','')}, just a quick note—I appreciate you trusting me with your mortgage. If you ever need advice or want to review your options, I’m always available for you and your family."
+                    f"Hi {first_name}, it’s {last_name} from MyMCMB. We worked together on your last refinance, and I wanted to check in! Your current payment is ${payment:.2f}/mo, but with today’s rates, you could have a new payment of ${n_and_i:.2f}/mo. Let’s review your options and see if now is a great time to save or access cash. Text me anytime!",
+                    f"Subject: Refinance Opportunity for {first_name} {last_name}\n\nHi {first_name},\n\nI hope you’re well! I enjoyed helping you with your last refinance, and I wanted to reach out with some new options. Your current payment is ${payment:.2f}/mo, and with today’s rates, you could have a new payment of ${n_and_i:.2f}/mo. Your home value is ${home_value:.2f}, and your loan-to-value is {new_ltv:.2f}%. Let’s compare your options and see if now is a great time to refinance, save, or access cash. Reply to this email or call me anytime!\n\nBest,\nYour Loan Officer"
                 ]
             results.append({
-                "Borrower First Name": row.get("Borrower First Name", ""),
-                "Borrower Last Name": row.get("Borrower Last Name", ""),
-                "City": row.get("City", ""),
-                "Original Home Value": home_value,
-                "New Estimated Home Value": new_home_value,
+                "Borrower First Name": first_name,
+                "Borrower Last Name": last_name,
+                "City": city,
+                "Estimated Home Value": home_value,
                 "Current P&I Mtg Pymt": payment,
                 "Remaining Balance": principal,
-                "Payments Made": payments_made,
                 "Rate Used": calc_rate,
                 "Term Used": calc_term,
                 "New Loan Amount": new_loan_amount,
@@ -197,17 +211,18 @@ def refinance_intelligence_center():
                 "Loan Term (years)": input_term,
                 "New LTV": new_ltv,
                 "N&I (New Payment)": n_and_i,
-                "Campaign 1": campaigns[0],
-                "Campaign 2": campaigns[1],
-                "Campaign 3": campaigns[2]
+                "Payment Difference": payment_diff,
+                "Borr Cell": cell,
+                "Borr Email": email,
+                "Text Campaign": campaigns[0],
+                "Email Campaign": campaigns[1]
             })
         results_df = pd.DataFrame(results)
         st.dataframe(results_df)
         st.markdown("#### AI-Powered Outreach Campaigns")
         for idx, row in results_df.iterrows():
-            st.write(f"**Campaign 1:** {row['Campaign 1']}")
-            st.write(f"**Campaign 2:** {row['Campaign 2']}")
-            st.write(f"**Campaign 3:** {row['Campaign 3']}")
+            st.write(f"**Text Campaign:** {row['Text Campaign']}")
+            st.write(f"**Email Campaign:** {row['Email Campaign']}")
             st.info(f"Best for: {row['Borrower First Name']} {row['Borrower Last Name']}")
 
         # --- EXPORT OPTIONS ---
