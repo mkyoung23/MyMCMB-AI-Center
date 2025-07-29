@@ -23,13 +23,14 @@ if "authenticated" not in st.session_state:
 if not st.session_state.authenticated:
     st.title("🔒 MyMCMB AI Center Login")
     password_input = st.text_input("Enter Password to Access App", type="password")
-    if st.button("Login"):
+    login_attempt = st.button("Login")
+    if login_attempt:
         if password_input == APP_PASSWORD:
             st.session_state.authenticated = True
-            st.experimental_rerun()
         else:
             st.error("Incorrect password. Please try again.")
-    st.stop()
+    if not st.session_state.authenticated:
+        st.stop()
 
 if GOOGLE_API_KEY:
     genai.configure(api_key=GOOGLE_API_KEY)
