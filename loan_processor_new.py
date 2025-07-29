@@ -426,24 +426,25 @@ def generate_realistic_texts(df: pd.DataFrame, officer_name: str, company_name: 
                 "points. Let's chat!"
             )
         }
+        # Build summary using concatenation to avoid nested quote issues
         summary = (
             f"BORROWER: {first} {last}\n"
             f"CLOSED: {closing_desc}\n"
             f"CURRENT: {current_rate_pct:.2f}% at ${current_payment:.0f}/mo\n\n"
-            f"LOAN OPTIONS:\n"
+            "LOAN OPTIONS:\n"
             f"• 30yr at {base_rate_pct:.2f}% with points = ${base_savings:.0f}/mo savings\n"
-            f"• 30yr at {nocost_rate_pct:.2f}% no‑cost = ${nocost_savings:.0f}/mo savings\n"
-            f"• 20yr at {nocost20_rate_pct:.2f}% no‑cost ≈ ${nocost20_payment:.0f}/mo payment\n\n"
+            f"• 30yr at {nocost_rate_pct:.2f}% no-cost = ${nocost_savings:.0f}/mo savings\n"
+            f"• 20yr at {nocost20_rate_pct:.2f}% no-cost ≈ ${nocost20_payment:.0f}/mo payment\n\n"
             "TALKING POINTS:\n"
-            f"✅ "We closed your mortgage {closing_desc}"\n"
-            f"✅ "Your home value increased ${equity_increase_k:.0f}k"\n"
-            "✅ "Lender credit option – we pay your closing costs"\n"
-            "✅ "Lock rates before they move again"\n"
-            f"✅ Current balance: ${row['New Loan Balance']:.0f}"\n"
-            f"✅ Home value: ${row['New Estimated Home Value']:.0f}"\n\n"
+            f"✅ We closed your mortgage {closing_desc}\n"
+            f"✅ Your home value increased ${equity_increase_k:.0f}k\n"
+            "✅ Previous Client Lender Credit – we pay closing costs\n"
+            "✅ Lock rates before they move again\n"
+            f"✅ Current balance: ${row['New Loan Balance']:.0f}\n"
+            f"✅ Home value: ${row['New Estimated Home Value']:.0f}\n\n"
             "BEST APPROACH:\n"
-            f"Start with the lender credit option (${nocost_savings:.0f}/mo). If they want an even lower rate, "
-            f"offer the points option (${base_savings:.0f}/mo)."
+            f"Start with the lender credit option (${nocost_savings:.0f}/mo). "
+            f"If they want an even lower rate, offer the points option (${base_savings:.0f}/mo)."
         )
         records.append({
             'Rank': len(records) + 1,
